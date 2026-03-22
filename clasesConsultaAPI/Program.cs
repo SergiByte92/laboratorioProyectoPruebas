@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace clasesConsultaAPI
+namespace Server
 {
     internal class Program
     {
