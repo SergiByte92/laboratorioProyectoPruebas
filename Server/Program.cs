@@ -18,7 +18,7 @@ namespace Server
         public static int password = 1234;
         static void serverAPI() 
         {
-            IPAddress address = IPAddress.Parse("192.168.111.43"); // hacerla auto
+            IPAddress address = IPAddress.Parse("192.168.1.33"); // hacerla auto
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp); 
@@ -39,7 +39,7 @@ namespace Server
         }
         static void serverIdentity() // En realidad puede hacer tanto registro como login, seria disternir la opcion, mandarle una opcion.
         {
-            IPAddress address = IPAddress.Parse("192.168.111.43"); // hacerla auto
+            IPAddress address = IPAddress.Parse("192.168.1.33"); // hacerla auto
             IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);

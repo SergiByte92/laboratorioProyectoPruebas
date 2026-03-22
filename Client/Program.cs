@@ -25,7 +25,7 @@ namespace Client
 
             while (true)
             {
-                string ip = "192.168.111.43";
+                string ip = "192.168.1.33";
                 int port = 1001;
                 Socket socketClient = createSocketConnection(ip, port);
 
