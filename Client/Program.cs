@@ -41,7 +41,7 @@ namespace Client
                 if (!int.TryParse(Console.ReadLine(), out int option))
                 {
                     Console.WriteLine("Opción no válida.");
-                    
+
                     continue;
                 }
 
@@ -62,7 +62,7 @@ namespace Client
                         password = Console.ReadLine();
 
                         sendString(user, socketClient);
-                        sendString(password, socketClient); 
+                        sendString(password, socketClient);
 
                         login = receiveBool(socketClient);
                         Console.WriteLine($"Acceso: {login}");
@@ -116,20 +116,25 @@ namespace Client
                     case (int)MainMenuOption.Register:
 
                         register = true;
-                        bool answerRegister = false;
 
                         while (register)
                         {
-                            MainRegister(socketClient);
-                            answerRegister = receiveBool(socketClient);
+                            bool datoEnviado = MainRegister(socketClient);
+                            
+                            if (!datoEnviado) 
+                            {
+                                continue;
+                            }
+                            bool answerRegister = receiveBool(socketClient);
 
                             if (answerRegister)
                             {
+                                Console.WriteLine("Ha sido registrado correctamente");
                                 register = false;
                             }
                             else
                             {
-                                Console.WriteLine("Verifice los datos que ha introducido");
+                                Console.WriteLine("Ha habido algun error en el registro");
                             }
                         }
 
@@ -146,7 +151,7 @@ namespace Client
             }
         }
 
-        public static void MainRegister(Socket socket)
+        public static bool MainRegister(Socket socket)
         {
             Console.Clear();
 
@@ -175,14 +180,30 @@ namespace Client
             Console.Write("> ");
             DateOnly birth_date = DateOnly.Parse(Console.ReadLine());
 
-            if (password == repeatPassword)
+            if (password != repeatPassword)
             {
-                sendRegister(socket, user, email, password, birth_date);
+                Console.WriteLine("Verifique la contraseña");
+                return false;
+                
             }
             else
             {
-                Console.WriteLine("Verifique su contraseña o otro dato");
+
+                try
+                {
+
+                    sendRegister(socket, user, email, password, birth_date);
+
+                    Console.WriteLine("Datos enviados correctamente");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Verifique los datos, no se ha podido ejecutar el registro");
+                    return false;
+                }
             }
+
         }
 
         public static void sendRegister(Socket socket, string user, string email, string password, DateOnly birth_date)
