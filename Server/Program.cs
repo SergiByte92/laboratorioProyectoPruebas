@@ -22,11 +22,11 @@ namespace Server
 
         public static string usuario = "Pepe";
         public static int password = 1234;
-        public static AppDbContext context;
-        public static string connectionString = "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres\"";
+        public static string connectionString = "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
+        public static AppDbContext context = new AppDbContext(connectionString);
         static void serverAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.1.33"); // hacerla auto
+            IPAddress address = IPAddress.Parse("192.168.1.34"); // hacerla auto
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -45,58 +45,58 @@ namespace Server
             Socket socket = (Socket)o;
             // Aplicar clases api a partir de lo que me da el cliente
         }
-        static void serverIdentity() // En realidad puede hacer tanto registro como login, seria disternir la opcion, mandarle una opcion.
+        static void serverIdentity()
         {
-            IPAddress address = IPAddress.Parse("192.168.1.33"); // hacerla auto
-            IPEndPoint endPoint = new IPEndPoint(address, 1001);
-
-            Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            socketServer.Bind(endPoint);
-            socketServer.Listen();
-            Console.WriteLine("Server Identity escuchando en el puerto 1001");
-            Console.WriteLine("Esperando clientes...");
-
-            // Si es login entonces bloque login, si es Register, Bloque Register
-            while (socketServer.IsBound)
+            try
             {
-                Socket socketAccept = socketServer.Accept();
-                Console.WriteLine("Cliente aceptado");
-                Thread threadsServer = new Thread(serviceIdentity);
-                threadsServer.Start(socketAccept);
-            }
+                IPAddress address = IPAddress.Parse("192.168.1.34"); // hacerla auto
+                IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
+                Socket socketServer = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                socketServer.Bind(endPoint);
+                socketServer.Listen();
+
+                Console.WriteLine("Server Identity escuchando en el puerto 1001");
+                Console.WriteLine("Esperando clientes...");
+
+                while (true)
+                {
+                    Socket socketAccept = socketServer.Accept();
+                    Console.WriteLine("Cliente aceptado");
+
+                    Thread threadServer = new Thread(serviceIdentity);
+                    threadServer.Start(socketAccept);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error fatal en serverIdentity:");
+                Console.WriteLine(ex);
+            }
         }
-        static void serviceIdentity(Object o)
+        static void serviceIdentity(object o)
         {
             Socket socket = (Socket)o;
-            
-            //checkLogin(usuario,password,socket);
-            byte[] bytes = new byte[sizeof(int)];
-            socket.Receive(bytes);
-            int option = BitConverter.ToInt32(bytes);
 
-            // Enum Opciones
-            if (option == (int)MainUser.Login)
+            try
             {
+                int option = receiveInt(socket);
 
-            }
-            else if (option == (int)MainUser.Register)
-            {
-                // Menu registro
-
-                try
+                if (option == (int)MainUser.Register)
                 {
-
-                    register(socket, context);
-                }
-                catch (Exception ex) 
-                {
-                    Console.WriteLine("El usuario no ha sido registrado correctamente");
-                    Console.WriteLine(ex.ToString());
-                    sendBool(socket, false);
+                    using AppDbContext db = new AppDbContext(connectionString);
+                    register(socket, db);
                 }
             }
-            // Aplicar clases api a partir de lo que me da el cliente
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                try { sendBool(socket, false); } catch { }
+            }
+            finally
+            {
+                socket.Close();
+            }
         }
 
         static void Main(string[] args)
@@ -122,28 +122,47 @@ namespace Server
             threadServerAPI.Start();
             Thread threadServerIdentity = new Thread(serverIdentity);
             threadServerIdentity.Start();
+
+            Console.WriteLine("Servidores corriendo. Pulsa ENTER para detenerlos.");
+            Console.ReadLine(); // <--- ESTO evita que el programa se cierre
         }
-        public static string receiveString(Socket socket) // Encapsular esto en un metodo de recibir credenciales
+        public static string receiveString(Socket socket)
         {
-            byte[] bytes = new byte[sizeof(int)];
-            socket.Receive(bytes); // Recibo el Tamaño
-            socket.Receive(bytes); // Recibo el mensaje
+            int length = receiveInt(socket);
+            byte[] bytes = ReceiveExact(socket, length);
             return Encoding.UTF8.GetString(bytes);
         }
         public static int receiveInt(Socket socket)
         {
-            byte[] bytes = new byte[sizeof(int)];
-            socket.Receive(bytes);
-            return BitConverter.ToInt32(bytes);
+            byte[] bytes = ReceiveExact(socket, sizeof(int));
+            return BitConverter.ToInt32(bytes, 0);
         }
-        public static void sendInt(Socket socket,int num) 
+        public static byte[] ReceiveExact(Socket socket, int size)
         {
-            byte[]bytes = BitConverter.GetBytes(num);
+            byte[] buffer = new byte[size];
+            int totalRead = 0;
+
+            while (totalRead < size)
+            {
+                int read = socket.Receive(buffer, totalRead, size - totalRead, SocketFlags.None);
+
+                if (read == 0)
+                    throw new SocketException((int)SocketError.ConnectionReset);
+
+                totalRead += read;
+            }
+
+            return buffer;
+        }
+        public static void sendInt(Socket socket, int num)
+        {
+            byte[] bytes = BitConverter.GetBytes(num);
             socket.Send(bytes);
         }
-        public static void sendBool(Socket socket, bool booleano) 
+
+        public static void sendBool(Socket socket, bool value)
         {
-            byte[] bytes = BitConverter.GetBytes(booleano);
+            byte[] bytes = BitConverter.GetBytes(value);
             socket.Send(bytes);
         }
         public static void checkLogin(string user, int password, Socket socket) // Faltaria metodo que coge el usuario y el password
@@ -166,26 +185,30 @@ namespace Server
             string user = receiveString(socket);
             string email = receiveString(socket);
             string password = receiveString(socket);
-            string data = receiveString(socket);
-            
-            addUser(context, user, email, password, data);
+            string date = receiveString(socket);
+
+            addUser(context, user, email, password, date);
 
             sendBool(socket, true);
-            
         }
-        public static void addUser(AppDbContext context,string user, string email,string password,string data) 
+        public static void addUser(AppDbContext context, string user, string email, string password, string date)
         {
-            AppDbContext.users userAdd = new AppDbContext.users(); // En este caso daremos por hecho que es nuevo usuario pero habria que verificar si existe
+            bool exists = context.Users.Any(u => u.username == user || u.email == email);
+            if (exists)
+                throw new InvalidOperationException("El usuario o email ya existe");
 
-            userAdd.username = user;
-            userAdd.email = email;
-            userAdd.password = password;
-            userAdd.birth_date = DateOnly.Parse(data);
+            AppDbContext.User userAdd = new AppDbContext.User
+            {
+                username = user,
+                email = email,
+                password = password, // luego esto hay que hashearlo, no guardarlo en plano
+                birth_date = DateOnly.Parse(date)
+            };
 
-            context.User.Add(userAdd);
+            context.Users.Add(userAdd);
+            context.SaveChanges();
 
-            Console.WriteLine($"El usuario {user} ha sido registrado correctamente en la base de datos ");
-            Console.WriteLine($"Se le manda al {user} la confirmación)");
+            Console.WriteLine($"Usuario {user} registrado correctamente en base de datos");
         }
     }
 }

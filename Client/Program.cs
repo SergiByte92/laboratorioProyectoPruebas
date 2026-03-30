@@ -18,14 +18,38 @@ namespace Client
             Exit = 0,
         }
 
-        static void Main(string[] args)
+
+/// <summary>
+///         
+/// EJEMPLO DE COMO DEBERIA QUEDAR EL CODIGO
+
+//        while (appEjecutandose) {
+//            // El menú principal solo coordina, no "sabe" cómo se hace un login
+//            var opcion = ui.ObtenerOpcionMenuPrincipal();
+
+//            switch (opcion) {
+//                case MenuPrincipal.Login:
+//                    EjecutarFlujoPostLogin(); // Encapsula: Login -> Grupo -> Lobby
+//                    break;
+//                case MenuPrincipal.Registro:
+//                    ProcesarRegistro();
+//                    break;
+//                case MenuPrincipal.Salir:
+//                    appEjecutandose = false;
+//                    break;
+//            }
+//}
+/// </summary>
+/// <param name="args"></param>
+
+static void Main(string[] args) 
         {
             bool login = false;
             bool register = false;
 
             while (true)
             {
-                string ip = "192.168.1.33";
+                string ip = "192.168.1.34";
                 int port = 1001;
                 Socket socketClient = createSocketConnection(ip, port);
 
@@ -154,6 +178,8 @@ namespace Client
         public static bool MainRegister(Socket socket)
         {
             Console.Clear();
+            byte[] bytes = BitConverter.GetBytes(2);
+            socket.Send(bytes);
 
             Console.WriteLine("JUST MEETING POINT");
             Console.WriteLine("==================");
@@ -183,6 +209,7 @@ namespace Client
             if (password != repeatPassword)
             {
                 Console.WriteLine("Verifique la contraseña");
+                Console.ReadKey();
                 return false;
                 
             }
@@ -195,6 +222,7 @@ namespace Client
                     sendRegister(socket, user, email, password, birth_date);
 
                     Console.WriteLine("Datos enviados correctamente");
+                    Console.ReadKey();
                     return true;
                 }
                 catch (Exception ex)
