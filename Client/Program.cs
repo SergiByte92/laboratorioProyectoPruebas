@@ -2,6 +2,7 @@
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using NetUtils;
 
 namespace Client
 {
@@ -85,10 +86,10 @@ static void Main(string[] args)
                         Console.Write(">");
                         password = Console.ReadLine();
 
-                        sendString(user, socketClient);
-                        sendString(password, socketClient);
+                        SocketTools.sendString(user, socketClient);
+                        SocketTools.sendString(password, socketClient);
 
-                        login = receiveBool(socketClient);
+                        login = SocketTools.receiveBool(socketClient);
                         Console.WriteLine($"Acceso: {login}");
 
                         while (login)
@@ -117,12 +118,12 @@ static void Main(string[] args)
                                     Console.WriteLine("Coordenada de Longitud?");
                                     Console.Write(">");
                                     double longitud = double.Parse(Console.ReadLine());
-                                    sendDouble(longitud, socketClient);
+                                    SocketTools.sendDouble(longitud, socketClient);
 
                                     Console.WriteLine("Coordenada de Latitud?");
                                     Console.Write(">");
                                     double latitud = double.Parse(Console.ReadLine());
-                                    sendDouble(latitud, socketClient);
+                                    SocketTools.sendDouble(latitud, socketClient);
                                     break;
 
                                 case (int)MainLogin.Exit:
@@ -149,7 +150,7 @@ static void Main(string[] args)
                             {
                                 continue;
                             }
-                            bool answerRegister = receiveBool(socketClient);
+                            bool answerRegister = SocketTools.receiveBool(socketClient);
 
                             if (answerRegister)
                             {
@@ -236,10 +237,10 @@ static void Main(string[] args)
 
         public static void sendRegister(Socket socket, string user, string email, string password, DateOnly birth_date)
         {
-            sendString(user, socket);
-            sendString(email, socket);
-            sendString(password, socket);
-            sendDate(birth_date, socket);
+            SocketTools.sendString(user, socket);
+            SocketTools.sendString(email, socket);
+            SocketTools.sendString(password, socket);
+            SocketTools.sendDate(birth_date, socket);
         }
 
         public static Socket createSocketConnection(string ip, int port)
@@ -251,37 +252,6 @@ static void Main(string[] args)
             return socket;
         }
 
-        public static void sendInt(int num, Socket socket)
-        {
-            byte[] bytes = BitConverter.GetBytes(num);
-            socket.Send(bytes);
-        }
 
-        public static void sendString(string message, Socket socket)
-        {
-            int size = message.Length;
-            byte[] bytes = BitConverter.GetBytes(size);
-            socket.Send(bytes);
-
-            bytes = Encoding.UTF8.GetBytes(message);
-            socket.Send(bytes);
-        }
-
-        public static bool receiveBool(Socket socket)
-        {
-            byte[] bytes = new byte[sizeof(bool)];
-            socket.Receive(bytes);
-            return BitConverter.ToBoolean(bytes);
-        }
-
-        public static void sendDouble(double coordenadas, Socket socket)
-        {
-            byte[] bytes = BitConverter.GetBytes(coordenadas);
-            socket.Send(bytes);
-        }
-        public static void sendDate(DateOnly date, Socket socket)
-        {
-            sendString(date.ToString("yyyy-MM-dd"), socket);
-        }
     }
 }

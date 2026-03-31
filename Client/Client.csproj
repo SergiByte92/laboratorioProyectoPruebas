@@ -7,4 +7,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\NetUtils\NetUtils.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -28,10 +28,22 @@ namespace NetUtils
             byte[] bytes = BitConverter.GetBytes(value);
             socket.Send(bytes);
         }
+
+        public static bool receiveBool(Socket socket)
+        {
+            byte[] bytes = new byte[sizeof(bool)];
+            socket.Receive(bytes);
+            return BitConverter.ToBoolean(bytes);
+        }
         public static void sendInt(Socket socket, int num)
         {
             byte[] bytes = BitConverter.GetBytes(num);
             socket.Send(bytes);
+        }
+        public static int receiveInt(Socket socket)
+        {
+            byte[] bytes = ReceiveExact(socket, sizeof(int));
+            return BitConverter.ToInt32(bytes, 0);
         }
         public static string receiveString(Socket socket)
         {
@@ -39,10 +51,23 @@ namespace NetUtils
             byte[] bytes = ReceiveExact(socket, length);
             return Encoding.UTF8.GetString(bytes);
         }
-        public static int receiveInt(Socket socket)
+        public static void sendString(string message, Socket socket)
         {
-            byte[] bytes = ReceiveExact(socket, sizeof(int));
-            return BitConverter.ToInt32(bytes, 0);
+            int size = message.Length;
+            byte[] bytes = BitConverter.GetBytes(size);
+            socket.Send(bytes);
+
+            bytes = Encoding.UTF8.GetBytes(message);
+            socket.Send(bytes);
+        }
+        public static void sendDouble(double coordenadas, Socket socket)
+        {
+            byte[] bytes = BitConverter.GetBytes(coordenadas);
+            socket.Send(bytes);
+        }
+        public static void sendDate(DateOnly date, Socket socket)
+        {
+            sendString(date.ToString("yyyy-MM-dd"), socket);
         }
     }
 }
