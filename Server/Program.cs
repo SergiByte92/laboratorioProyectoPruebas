@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using NetUtils;
 
 namespace Server
 {
@@ -26,7 +27,7 @@ namespace Server
         public static AppDbContext context = new AppDbContext(connectionString);
         static void serverAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.1.34"); // hacerla auto
+            IPAddress address = IPAddress.Parse("192.168.1.36"); // hacerla auto
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -49,10 +50,10 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.1.34"); // hacerla auto
+                IPAddress address = IPAddress.Parse("192.168.1.36"); // hacerla auto
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
-                Socket socketServer = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                 socketServer.Bind(endPoint);
                 socketServer.Listen();
 
@@ -80,7 +81,7 @@ namespace Server
 
             try
             {
-                int option = receiveInt(socket);
+                int option = SocketTools.receiveInt(socket);
 
                 if (option == (int)MainUser.Register)
                 {
@@ -91,7 +92,7 @@ namespace Server
             catch (Exception ex)
             {
                 Console.WriteLine(ex);
-                try { sendBool(socket, false); } catch { }
+                try { SocketTools.sendBool(socket, false); } catch { }
             }
             finally
             {
@@ -126,49 +127,13 @@ namespace Server
             Console.WriteLine("Servidores corriendo. Pulsa ENTER para detenerlos.");
             Console.ReadLine(); // <--- ESTO evita que el programa se cierre
         }
-        public static string receiveString(Socket socket)
-        {
-            int length = receiveInt(socket);
-            byte[] bytes = ReceiveExact(socket, length);
-            return Encoding.UTF8.GetString(bytes);
-        }
-        public static int receiveInt(Socket socket)
-        {
-            byte[] bytes = ReceiveExact(socket, sizeof(int));
-            return BitConverter.ToInt32(bytes, 0);
-        }
-        public static byte[] ReceiveExact(Socket socket, int size)
-        {
-            byte[] buffer = new byte[size];
-            int totalRead = 0;
 
-            while (totalRead < size)
-            {
-                int read = socket.Receive(buffer, totalRead, size - totalRead, SocketFlags.None);
 
-                if (read == 0)
-                    throw new SocketException((int)SocketError.ConnectionReset);
 
-                totalRead += read;
-            }
-
-            return buffer;
-        }
-        public static void sendInt(Socket socket, int num)
-        {
-            byte[] bytes = BitConverter.GetBytes(num);
-            socket.Send(bytes);
-        }
-
-        public static void sendBool(Socket socket, bool value)
-        {
-            byte[] bytes = BitConverter.GetBytes(value);
-            socket.Send(bytes);
-        }
         public static void checkLogin(string user, int password, Socket socket) // Faltaria metodo que coge el usuario y el password
         {
-            string receiveUser = receiveString(socket);
-            int receivePassword = receiveInt(socket);
+            string receiveUser = SocketTools.receiveString(socket);
+            int receivePassword = SocketTools.receiveInt(socket);
             if (receiveUser == user && receivePassword == password)
             {
                 byte[] bytes = BitConverter.GetBytes(true);
@@ -182,14 +147,14 @@ namespace Server
         }
         public static void register(Socket socket, AppDbContext context)
         {
-            string user = receiveString(socket);
-            string email = receiveString(socket);
-            string password = receiveString(socket);
-            string date = receiveString(socket);
+            string user = SocketTools.receiveString(socket);
+            string email = SocketTools.receiveString(socket);
+            string password = SocketTools.receiveString(socket);
+            string date = SocketTools.receiveString(socket);
 
             addUser(context, user, email, password, date);
 
-            sendBool(socket, true);
+            SocketTools.sendBool(socket, true);
         }
         public static void addUser(AppDbContext context, string user, string email, string password, string date)
         {

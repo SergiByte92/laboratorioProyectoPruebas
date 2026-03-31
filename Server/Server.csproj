@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Data\Data.csproj" />
+    <ProjectReference Include="..\NetUtils\NetUtils.csproj" />
   </ItemGroup>
 
 </Project>

@@ -49,7 +49,7 @@ static void Main(string[] args)
 
             while (true)
             {
-                string ip = "192.168.1.34";
+                string ip = "192.168.1.36";
                 int port = 1001;
                 Socket socketClient = createSocketConnection(ip, port);
 
