@@ -15,7 +15,7 @@ namespace Server
         // Server para la consulta ( solo? )
         // Server para las matematicas
         // Server para la gestion del grupo?
-        public  enum MainUser 
+        public enum MainUser
         {
             Login = 1,
             Register = 2
@@ -24,7 +24,7 @@ namespace Server
         public static string usuario = "Pepe";
         public static int password = 1234;
         public static string connectionString = "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
-        public static AppDbContext context = new AppDbContext(connectionString);
+
         static void serverAPI()
         {
             IPAddress address = IPAddress.Parse("192.168.1.36"); // hacerla auto
@@ -83,10 +83,22 @@ namespace Server
             {
                 int option = SocketTools.receiveInt(socket);
 
-                if (option == (int)MainUser.Register)
+                if (option == (int)MainUser.Login)
                 {
+                    Console.WriteLine("Cliente logeandose...");
+                    using AppDbContext db = new AppDbContext(connectionString);
+                    checkLogin(socket, db);
+                }
+                else if (option == (int)MainUser.Register)
+                {
+                    Console.WriteLine("Cliente registrandose...");
                     using AppDbContext db = new AppDbContext(connectionString);
                     register(socket, db);
+                }
+                else
+                {
+                    Console.WriteLine("Opción no válida recibida");
+                    SocketTools.sendBool(socket, false);
                 }
             }
             catch (Exception ex)
@@ -102,14 +114,13 @@ namespace Server
 
         static void Main(string[] args)
         {
-            try 
+            try
             {
-
-            context = new AppDbContext(connectionString);
-            context.Database.EnsureCreated();
-            Console.WriteLine("Creadas las bases de datos");
-            Thread.Sleep(1000);
-            Console.Clear();
+                using AppDbContext db = new AppDbContext(connectionString);
+                db.Database.EnsureCreated();
+                Console.WriteLine("Creadas las bases de datos");
+                Thread.Sleep(1000);
+                Console.Clear();
             }
             catch (Exception ex)
             {
@@ -121,29 +132,31 @@ namespace Server
 
             Thread threadServerAPI = new Thread(serverAPI);
             threadServerAPI.Start();
+
             Thread threadServerIdentity = new Thread(serverIdentity);
             threadServerIdentity.Start();
 
             Console.WriteLine("Servidores corriendo. Pulsa ENTER para detenerlos.");
-            Console.ReadLine(); // <--- ESTO evita que el programa se cierre
+            Console.ReadLine();
         }
 
 
 
-        public static void checkLogin(string user, int password, Socket socket) // Faltaria metodo que coge el usuario y el password
+        public static void checkLogin(Socket socket, AppDbContext db) // Faltaria metodo que coge el usuario y el password
         {
+            // 1. Recibes los datos que envía el cliente
             string receiveUser = SocketTools.receiveString(socket);
-            int receivePassword = SocketTools.receiveInt(socket);
-            if (receiveUser == user && receivePassword == password)
-            {
-                byte[] bytes = BitConverter.GetBytes(true);
-                socket.Send(bytes);
-            }
-            else
-            {
-                byte[] bytes = BitConverter.GetBytes(false);
-                socket.Send(bytes);
-            }
+            string receivePassword = SocketTools.receiveString(socket);
+
+            // 2. Buscas en la tabla Users un registro que coincida con AMBOS campos
+            // Usamos LINQ para decir: "Traeme el primero que coincida con esto"
+            var userInDb = db.Users.FirstOrDefault(u => u.username == receiveUser && u.password == receivePassword);
+
+            // 3. Si 'userInDb' no es nulo, significa que encontró la combinación correcta
+            bool loginSuccessful = (userInDb != null);
+
+            // 4. Envías la respuesta al socket
+            SocketTools.sendBool(socket, loginSuccessful);
         }
         public static void register(Socket socket, AppDbContext context)
         {
@@ -155,6 +168,7 @@ namespace Server
             addUser(context, user, email, password, date);
 
             SocketTools.sendBool(socket, true);
+
         }
         public static void addUser(AppDbContext context, string user, string email, string password, string date)
         {

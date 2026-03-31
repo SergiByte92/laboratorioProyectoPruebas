@@ -31,9 +31,8 @@ namespace NetUtils
 
         public static bool receiveBool(Socket socket)
         {
-            byte[] bytes = new byte[sizeof(bool)];
-            socket.Receive(bytes);
-            return BitConverter.ToBoolean(bytes);
+            byte[] bytes = ReceiveExact(socket, sizeof(bool));
+            return BitConverter.ToBoolean(bytes, 0);
         }
         public static void sendInt(Socket socket, int num)
         {
@@ -53,11 +52,17 @@ namespace NetUtils
         }
         public static void sendString(string message, Socket socket)
         {
-            int size = message.Length;
-            byte[] bytes = BitConverter.GetBytes(size);
-            socket.Send(bytes);
+            // 1. Convertimos el string a bytes PRIMERO
+            byte[] bytes = Encoding.UTF8.GetBytes(message);
 
-            bytes = Encoding.UTF8.GetBytes(message);
+            // 2. Calculamos el tamaño real en BYTES, no en caracteres
+            int size = bytes.Length;
+
+            // 3. Enviamos el tamaño (4 bytes del Int)
+            byte[] sizeBytes = BitConverter.GetBytes(size);
+            socket.Send(sizeBytes);
+
+            // 4. Enviamos el contenido real
             socket.Send(bytes);
         }
         public static void sendDouble(double coordenadas, Socket socket)

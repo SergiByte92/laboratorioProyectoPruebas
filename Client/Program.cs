@@ -1,7 +1,5 @@
 ﻿using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Text;
 using NetUtils;
 
 namespace Client
@@ -13,47 +11,23 @@ namespace Client
             Login = 1,
             Register = 2,
         }
+
         public enum MainLogin
         {
             MeetingPoint = 1,
             Exit = 0,
         }
 
-
-/// <summary>
-///         
-/// EJEMPLO DE COMO DEBERIA QUEDAR EL CODIGO
-
-//        while (appEjecutandose) {
-//            // El menú principal solo coordina, no "sabe" cómo se hace un login
-//            var opcion = ui.ObtenerOpcionMenuPrincipal();
-
-//            switch (opcion) {
-//                case MenuPrincipal.Login:
-//                    EjecutarFlujoPostLogin(); // Encapsula: Login -> Grupo -> Lobby
-//                    break;
-//                case MenuPrincipal.Registro:
-//                    ProcesarRegistro();
-//                    break;
-//                case MenuPrincipal.Salir:
-//                    appEjecutandose = false;
-//                    break;
-//            }
-//}
-/// </summary>
-/// <param name="args"></param>
-
-static void Main(string[] args) 
+        static void Main(string[] args)
         {
-            bool login = false;
-            bool register = false;
+            string ip = "192.168.1.36";
+            int port = 1001;
 
-            while (true)
+            bool appRunning = true;
+
+            while (appRunning)
             {
-                string ip = "192.168.1.36";
-                int port = 1001;
-                Socket socketClient = createSocketConnection(ip, port);
-
+                Console.Clear();
                 Console.WriteLine("JUST MEETING POINT");
                 Console.WriteLine("================");
                 Console.WriteLine("1- Iniciar Sesión");
@@ -62,116 +36,170 @@ static void Main(string[] args)
                 Console.WriteLine("================");
                 Console.Write(">");
 
-                // CAMBIO 1: TryParse — si el usuario escribe letras, no explota
                 if (!int.TryParse(Console.ReadLine(), out int option))
                 {
                     Console.WriteLine("Opción no válida.");
-
+                    Console.ReadKey();
                     continue;
                 }
 
-                // CAMBIO 2: switch en lugar de if/if — es la construcción correcta para menús
                 switch (option)
                 {
                     case (int)MainMenuOption.Login:
-
-                        string user;
-                        string password;
-
-                        Console.WriteLine("Usuario");
-                        Console.Write(">");
-                        user = Console.ReadLine();
-
-                        Console.WriteLine("Contraseña");
-                        Console.Write(">");
-                        password = Console.ReadLine();
-
-                        SocketTools.sendString(user, socketClient);
-                        SocketTools.sendString(password, socketClient);
-
-                        login = SocketTools.receiveBool(socketClient);
-                        Console.WriteLine($"Acceso: {login}");
-
-                        while (login)
-                        {
-                            Console.WriteLine("JUST MEETING POINT");
-                            Console.WriteLine("==================");
-                            Console.WriteLine("1.- Iniciar Meeting Point");
-                            Console.WriteLine("0.- Salir");
-                            Console.Write(">");
-
-                            // CAMBIO 1: TryParse también aquí
-                            if (!int.TryParse(Console.ReadLine(), out int loginOption))
-                            {
-                                Console.WriteLine("Opción no válida.");
-                                continue;
-                            }
-
-                            // CAMBIO 2: switch también en el menú logueado
-                            switch (loginOption)
-                            {
-                                case (int)MainLogin.MeetingPoint:
-                                    Console.WriteLine("JUST MEETING POINT");
-                                    Console.WriteLine("==================");
-                                    Console.WriteLine("Envie Coordenadas");
-
-                                    Console.WriteLine("Coordenada de Longitud?");
-                                    Console.Write(">");
-                                    double longitud = double.Parse(Console.ReadLine());
-                                    SocketTools.sendDouble(longitud, socketClient);
-
-                                    Console.WriteLine("Coordenada de Latitud?");
-                                    Console.Write(">");
-                                    double latitud = double.Parse(Console.ReadLine());
-                                    SocketTools.sendDouble(latitud, socketClient);
-                                    break;
-
-                                case (int)MainLogin.Exit:
-                                    login = false;
-                                    break;
-
-                                default:
-                                    Console.WriteLine("Opción no válida.");
-                                    break;
-                            }
-                        }
-
+                        ProcessLogin(ip, port);
                         break;
 
                     case (int)MainMenuOption.Register:
-
-                        register = true;
-
-                        while (register)
-                        {
-                            bool datoEnviado = MainRegister(socketClient);
-                            
-                            if (!datoEnviado) 
-                            {
-                                continue;
-                            }
-                            bool answerRegister = SocketTools.receiveBool(socketClient);
-
-                            if (answerRegister)
-                            {
-                                Console.WriteLine("Ha sido registrado correctamente");
-                                register = false;
-                            }
-                            else
-                            {
-                                Console.WriteLine("Ha habido algun error en el registro");
-                            }
-                        }
-
+                        ProcessRegister(ip, port);
                         break;
 
                     case 0:
-                        socketClient.Close(); // CAMBIO 5: cerramos antes de salir
-                        return;
+                        appRunning = false;
+                        break;
 
                     default:
                         Console.WriteLine("Opción no válida.");
+                        Console.ReadKey();
                         break;
+                }
+            }
+        }
+
+        public static void ProcessLogin(string ip, int port)
+        {
+            bool tryLogin = true;
+
+            while (tryLogin)
+            {
+                Console.Clear();
+                Console.WriteLine("JUST MEETING POINT");
+                Console.WriteLine("==================");
+                Console.WriteLine("      LOGIN");
+                Console.WriteLine("==================");
+
+                Console.WriteLine("Usuario");
+                Console.Write(">");
+                string user = Console.ReadLine();
+
+                Console.WriteLine("Contraseña");
+                Console.Write(">");
+                string password = Console.ReadLine();
+
+                try
+                {
+                    using Socket socketClient = createSocketConnection(ip, port);
+
+                    SocketTools.sendInt(socketClient, (int)MainMenuOption.Login);
+                    SocketTools.sendString(user, socketClient);
+                    SocketTools.sendString(password, socketClient);
+
+                    bool login = SocketTools.receiveBool(socketClient);
+
+                    if (!login)
+                    {
+                        Console.WriteLine($"Acceso: {login}");
+                        Console.WriteLine("Compruebe que escribe bien sus datos");
+                        Console.ReadKey();
+                    }
+                    else
+                    {
+                        Console.WriteLine("Login correcto");
+                        Console.ReadKey();
+
+                        // OJO:
+                        // El serverIdentity cierra el socket después del login.
+                        // Por tanto, a partir de aquí NO puedes seguir usando esta conexión.
+                        // Si quieres menú post-login real, deberá ir por otro server o con otro protocolo.
+
+                        ShowLoggedMenuPlaceholder();
+                        tryLogin = false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("No se ha podido completar el login");
+                    Console.WriteLine(ex.Message);
+                    Console.ReadKey();
+                }
+            }
+        }
+
+        public static void ShowLoggedMenuPlaceholder()
+        {
+            bool loginMenu = true;
+
+            while (loginMenu)
+            {
+                Console.Clear();
+                Console.WriteLine("JUST MEETING POINT");
+                Console.WriteLine("==================");
+                Console.WriteLine("1.- Iniciar Meeting Point");
+                Console.WriteLine("0.- Salir");
+                Console.Write(">");
+
+                if (!int.TryParse(Console.ReadLine(), out int loginOption)) // Si no puedes pasar el valor a int entonces se activa el bloque
+                {
+                    Console.WriteLine("Opción no válida.");
+                    Console.ReadKey();
+                    continue;
+                }
+
+                switch (loginOption)
+                {
+                    case (int)MainLogin.MeetingPoint:
+                        Console.WriteLine("Esta parte todavía no puede usar el mismo socket del login.");
+                        Console.WriteLine("Necesitas otro servidor o abrir otra conexión con otro protocolo.");
+                        Console.ReadKey();
+                        break;
+
+                    case (int)MainLogin.Exit:
+                        loginMenu = false;
+                        break;
+
+                    default:
+                        Console.WriteLine("Opción no válida.");
+                        Console.ReadKey();
+                        break;
+                }
+            }
+        }
+
+        public static void ProcessRegister(string ip, int port)
+        {
+            bool register = true;
+
+            while (register)
+            {
+                try
+                {
+                    using Socket socketClient = createSocketConnection(ip, port);
+
+                    bool datoEnviado = MainRegister(socketClient);
+
+                    if (!datoEnviado)
+                    {
+                        continue;
+                    }
+
+                    bool answerRegister = SocketTools.receiveBool(socketClient);
+
+                    if (answerRegister)
+                    {
+                        Console.WriteLine("Ha sido registrado correctamente");
+                        register = false;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Ha habido algún error en el registro");
+                    }
+
+                    Console.ReadKey();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("No se ha podido completar el registro");
+                    Console.WriteLine(ex.Message);
+                    Console.ReadKey();
                 }
             }
         }
@@ -179,8 +207,8 @@ static void Main(string[] args)
         public static bool MainRegister(Socket socket)
         {
             Console.Clear();
-            byte[] bytes = BitConverter.GetBytes(2);
-            socket.Send(bytes);
+
+            SocketTools.sendInt(socket, (int)MainMenuOption.Register);
 
             Console.WriteLine("JUST MEETING POINT");
             Console.WriteLine("==================");
@@ -203,55 +231,56 @@ static void Main(string[] args)
             Console.Write("> ");
             string repeatPassword = Console.ReadLine();
 
-            Console.WriteLine("- Fecha de Nacimiento (yyyy/mm/dd)");
+            Console.WriteLine("- Fecha de Nacimiento (yyyy-MM-dd)");
             Console.Write("> ");
-            DateOnly birth_date = DateOnly.Parse(Console.ReadLine());
+            string inputDate = Console.ReadLine();
 
             if (password != repeatPassword)
             {
                 Console.WriteLine("Verifique la contraseña");
                 Console.ReadKey();
                 return false;
-                
             }
-            else
+
+            if (!DateOnly.TryParse(inputDate, out DateOnly birthDate))
             {
-
-                try
-                {
-
-                    sendRegister(socket, user, email, password, birth_date);
-
-                    Console.WriteLine("Datos enviados correctamente");
-                    Console.ReadKey();
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Verifique los datos, no se ha podido ejecutar el registro");
-                    return false;
-                }
+                Console.WriteLine("Fecha no válida");
+                Console.ReadKey();
+                return false;
             }
 
+            try
+            {
+                sendRegister(socket, user, email, password, birthDate);
+
+                Console.WriteLine("Datos enviados correctamente");
+                return true;
+            }
+            catch
+            {
+                Console.WriteLine("Verifique los datos, no se ha podido ejecutar el registro");
+                Console.ReadKey();
+                return false;
+            }
         }
 
-        public static void sendRegister(Socket socket, string user, string email, string password, DateOnly birth_date)
+        public static void sendRegister(Socket socket, string user, string email, string password, DateOnly birthDate)
         {
             SocketTools.sendString(user, socket);
             SocketTools.sendString(email, socket);
             SocketTools.sendString(password, socket);
-            SocketTools.sendDate(birth_date, socket);
+            SocketTools.sendDate(birthDate, socket);
         }
 
         public static Socket createSocketConnection(string ip, int port)
         {
             IPAddress address = IPAddress.Parse(ip);
             IPEndPoint endpoint = new IPEndPoint(address, port);
+
             Socket socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             socket.Connect(endpoint);
+
             return socket;
         }
-
-
     }
 }
