@@ -1,6 +1,0 @@
-74308c6 | SergiByte92 | 2026-03-22 | Upgrade register
-b202a94 | Sergi García | 2026-03-22 | Refactor,change names (client and server)
-5f71f0e | Sergi García | 2026-03-22 |  Refactor  : Code the client and add the orm
-94995a3 | SergiByte92 | 2026-03-20 | update
-b50dee1 | SergiByte92 | 2026-03-20 | Update en la estructura
-2e702fc | SergiByte92 | 2026-03-20 | Update de la arquitectura

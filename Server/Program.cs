@@ -1,10 +1,11 @@
 ﻿using Server.Data;
+using Server.API;
+using Server.Algorithm;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using NetUtils;
-using Server.Algorithm;
 
 namespace Server
 {
@@ -48,7 +49,7 @@ namespace Server
             Socket socket = (Socket)o;
             // Aplicar clases api a partir de lo que me da el cliente
         }
-        static void serverIdentity()
+        static void serverIdentity() // Siguiente paso, añadir grupo,recoger gps y hacer consulta y que la reciba el cliente
         {
             try
             {

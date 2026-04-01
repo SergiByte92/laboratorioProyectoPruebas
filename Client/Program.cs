@@ -1,6 +1,8 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using NetUtils;
+using Client.MainMenu;
+
 
 namespace Client
 {
@@ -18,7 +20,7 @@ namespace Client
             Exit = 0,
         }
 
-        static void Main(string[] args)
+        static void Main(string[] args) // Siguiente paso : Grupo, recibe pass, se une, mandan localizacion y hace punto geometrico. Tambien refactorizar
         {
             string ip = "192.168.1.36";
             int port = 1001;
@@ -50,7 +52,7 @@ namespace Client
                         break;
 
                     case (int)MainMenuOption.Register:
-                        ProcessRegister(ip, port);
+                        Menu.ProcessRegister(ip, port);
                         break;
 
                     case 0:
@@ -164,113 +166,6 @@ namespace Client
             }
         }
 
-        public static void ProcessRegister(string ip, int port)
-        {
-            bool register = true;
-
-            while (register)
-            {
-                try
-                {
-                    using Socket socketClient = createSocketConnection(ip, port);
-
-                    bool datoEnviado = MainRegister(socketClient);
-
-                    if (!datoEnviado)
-                    {
-                        continue;
-                    }
-
-                    bool answerRegister = SocketTools.receiveBool(socketClient);
-
-                    if (answerRegister)
-                    {
-                        Console.WriteLine("Ha sido registrado correctamente");
-                        register = false;
-                    }
-                    else
-                    {
-                        Console.WriteLine("Ha habido algún error en el registro");
-                    }
-
-                    Console.ReadKey();
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine("No se ha podido completar el registro");
-                    Console.WriteLine(ex.Message);
-                    Console.ReadKey();
-                }
-            }
-        }
-
-        public static bool MainRegister(Socket socket)
-        {
-            Console.Clear();
-
-            SocketTools.sendInt(socket, (int)MainMenuOption.Register);
-
-            Console.WriteLine("JUST MEETING POINT");
-            Console.WriteLine("==================");
-            Console.WriteLine("    REGISTER");
-            Console.WriteLine("==================");
-
-            Console.WriteLine("- Usuario");
-            Console.Write("> ");
-            string user = Console.ReadLine();
-
-            Console.WriteLine("- Email");
-            Console.Write("> ");
-            string email = Console.ReadLine();
-
-            Console.WriteLine("- Password");
-            Console.Write("> ");
-            string password = Console.ReadLine();
-
-            Console.WriteLine("- Repita el Password");
-            Console.Write("> ");
-            string repeatPassword = Console.ReadLine();
-
-            Console.WriteLine("- Fecha de Nacimiento (yyyy-MM-dd)");
-            Console.Write("> ");
-            string inputDate = Console.ReadLine();
-
-            if (password != repeatPassword)
-            {
-                Console.WriteLine("Verifique la contraseña");
-                Console.ReadKey();
-                return false;
-            }
-
-            if (!DateOnly.TryParse(inputDate, out DateOnly birthDate))
-            {
-                Console.WriteLine("Fecha no válida");
-                Console.ReadKey();
-                return false;
-            }
-
-            try
-            {
-                sendRegister(socket, user, email, password, birthDate);
-
-                Console.WriteLine("Datos enviados correctamente");
-                return true;
-            }
-            catch
-            {
-                Console.WriteLine("Verifique los datos, no se ha podido ejecutar el registro");
-                Console.ReadKey();
-                return false;
-            }
-        }
-
-        public static void sendRegister(Socket socket, string user, string email, string password, DateOnly birthDate)
-        {
-            SocketTools.sendString(user, socket);
-            SocketTools.sendString(email, socket);
-            SocketTools.sendString(password, socket);
-            SocketTools.sendDate(birthDate, socket);
-        }
 
         public static Socket createSocketConnection(string ip, int port)
         {
