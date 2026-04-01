@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using NetUtils;
+using Server.Algorithm;
 
 namespace Server
 {
@@ -15,6 +16,7 @@ namespace Server
         // Server para la consulta ( solo? )
         // Server para las matematicas
         // Server para la gestion del grupo?
+        // Server para los logs
         public enum MainUser
         {
             Login = 1,
@@ -39,7 +41,7 @@ namespace Server
                 Thread threadsServer = new Thread(serviceAPI);
                 threadsServer.Start(socketAccept);
             }
-
+           
         }
         static void serviceAPI(Object o)
         {
