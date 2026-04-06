@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using NetUtils;
+using System.Runtime.CompilerServices;
 
 namespace Server
 {
@@ -30,7 +31,7 @@ namespace Server
 
         static void serverAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.1.36"); // hacerla auto
+            IPAddress address = IPAddress.Parse("192.168.1.34"); // hacerla auto
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -53,7 +54,7 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.1.36"); // hacerla auto
+                IPAddress address = IPAddress.Parse("192.168.1.34"); // hacerla auto
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
                 Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -192,5 +193,6 @@ namespace Server
 
             Console.WriteLine($"Usuario {user} registrado correctamente en base de datos");
         }
+
     }
 }

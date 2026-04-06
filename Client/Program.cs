@@ -22,7 +22,7 @@ namespace Client
 
         static void Main(string[] args) // Siguiente paso : Grupo, recibe pass, se une, mandan localizacion y hace punto geometrico. Tambien refactorizar
         {
-            string ip = "192.168.1.36";
+            string ip = "192.168.1.34";
             int port = 1001;
 
             bool appRunning = true;
@@ -113,7 +113,7 @@ namespace Client
                         // Por tanto, a partir de aquí NO puedes seguir usando esta conexión.
                         // Si quieres menú post-login real, deberá ir por otro server o con otro protocolo.
 
-                        ShowLoggedMenuPlaceholder();
+                        ShowLoggedMenu();
                         tryLogin = false;
                     }
                 }
@@ -126,42 +126,102 @@ namespace Client
             }
         }
 
-        public static void ShowLoggedMenuPlaceholder()
+        public static void ShowLoggedMenu()
         {
-            bool loginMenu = true;
+            int currentTab = 1; // 1: Home, 2: Group, 3: Map, 4: Profile
+            bool inApp = true;
 
-            while (loginMenu)
+            while (inApp)
             {
                 Console.Clear();
-                Console.WriteLine("JUST MEETING POINT");
-                Console.WriteLine("==================");
-                Console.WriteLine("1.- Iniciar Meeting Point");
-                Console.WriteLine("0.- Salir");
-                Console.Write(">");
+                Console.WriteLine("=== JUST MEETING POINT ===");
 
-                if (!int.TryParse(Console.ReadLine(), out int loginOption)) // Si no puedes pasar el valor a int entonces se activa el bloque
+                // --- 1. SWITCH DE VISUALIZACIÓN (Pintar contenido) ---
+                switch (currentTab)
                 {
-                    Console.WriteLine("Opción no válida.");
-                    Console.ReadKey();
-                    continue;
+                    case 1: PrintHomeContent(); break;
+                    case 2: PrintGroupContent(); break;
+                    case 3: PrintMapContent(); break;
+                    case 4: PrintProfileContent(); break;
                 }
 
-                switch (loginOption)
+                // --- TAB BAR (Siempre visible) ---
+                Console.WriteLine("\n==============================");
+                Console.WriteLine($"{(currentTab == 1 ? "[HOME]" : " Home ")} | " +
+                                  $"{(currentTab == 2 ? "[GROUP]" : " Group ")} | " +
+                                  $"{(currentTab == 3 ? "[MAP]" : " Map ")} | " +
+                                  $"{(currentTab == 4 ? "[PERFIL]" : " Perfil ")}");
+                Console.WriteLine("==============================");
+                Console.WriteLine("Selecciona (1-4) o usa las letras de acción (C, U, S, etc.)");
+                Console.WriteLine("Pulsa 0 para Salir.");
+                Console.Write(">");
+
+                // --- 2. CAPTURA DE INPUT (Leemos string para aceptar letras y números) ---
+                string input = Console.ReadLine()?.ToLower();
+
+                // --- 3. LÓGICA DE NAVEGACIÓN (Prioridad: Cambiar de pestaña) ---
+                if (int.TryParse(input, out int tab) && tab >= 1 && tab <= 4)
                 {
-                    case (int)MainLogin.MeetingPoint:
-                        Console.WriteLine("Esta parte todavía no puede usar el mismo socket del login.");
-                        Console.WriteLine("Necesitas otro servidor o abrir otra conexión con otro protocolo.");
-                        Console.ReadKey();
-                        break;
+                    currentTab = tab;
+                }
+                else if (input == "0")
+                {
+                    inApp = false;
+                }
+                else
+                {
+                    // --- 4. SWITCH DE ACCIONES (Depende de en qué pestaña estemos) ---
+                    switch (currentTab)
+                    {
+                        case 2: // Acciones dentro de GROUP
+                            if (input == "c")
+                            {
+                                Console.WriteLine("\n[Lógica] Iniciando creación de grupo...");
+                                Thread.Sleep(1000);
+                                Console.Clear();
+                                // Aquí llamarías a tu método de Sockets: CreateGroup();
 
-                    case (int)MainLogin.Exit:
-                        loginMenu = false;
-                        break;
+                                Console.WriteLine("Nombre del grupo");
+                                string nameGroup = Console.ReadLine()?.ToLower().Trim();  
+                                Console.WriteLine("Elige una etiqueta [Bailar,Cena,Deporte,Paseo,Cafe");
+                                Console.WriteLine("Descripción (si no quiere rellenar nada pulse \".\" ");
+                                Console.WriteLine("Metodo [Punto Optimo, Recomendación]");
+                                string method = Console.ReadLine()?.ToLower();
+                                Thread.Sleep(1000);
+                                Console.WriteLine("Codigo de grupo");
+                                // Codigo para que se junte la gente
 
-                    default:
-                        Console.WriteLine("Opción no válida.");
-                        Console.ReadKey();
-                        break;
+                                Console.WriteLine("Cuando este listo, pulse enter para ir al lobby"); // De aqui a la sala de espera, 
+                                // solo el creador puede darle al ok de los calculos
+                                Console.ReadLine();
+
+                            }
+                            else if (input == "u")
+                            {
+                                Console.WriteLine("\n[Lógica] Introduce el código del grupo:");
+                                Console.Write(">");
+                                Console.ReadLine();
+
+                                //Logica si es correcto o no, si lo es, se pasa al lobby
+                                // JoinGroup();
+                                Console.ReadKey();
+                            }
+                            break;
+
+                        case 4: // Acciones dentro de PROFILE
+                            if (input == "s")
+                            {
+                                Console.WriteLine("\n[Lógica] Entrando en Ajustes...");
+                                // ShowSettings();
+                                Console.ReadKey();
+                            }
+                            break;
+
+                        default:
+                            Console.WriteLine("\nOpción no reconocida. Intenta de nuevo.");
+                            Thread.Sleep(1000); // Pausa breve para que el usuario lea el error
+                            break;
+                    }
                 }
             }
         }
@@ -176,6 +236,46 @@ namespace Client
             socket.Connect(endpoint);
 
             return socket;
+        }
+        // --- MÉTODOS DE CONTENIDO ---
+
+        public static void PrintHomeContent()
+        {
+            Console.WriteLine("🏠 INICIO - Actividad Reciente");
+            Console.WriteLine("--------------------------------");
+            Console.WriteLine("> Noticia: ¡Nueva actualización de mapas disponible!");
+            Console.WriteLine("> Tip: Crea un grupo rápido usando el botón 'Group'.");
+            Console.WriteLine("> Historial: Quedada en 'Bar Central' (hace 2 días).");
+        }
+
+        public static void PrintGroupContent()
+        {
+            Console.WriteLine("👥 GRUPOS - Gestión de Reuniones");
+            Console.WriteLine("--------------------------------");
+            // Aquí es donde meterías tu lógica de sockets para crear/unirse
+            Console.WriteLine("1. [C]rear nuevo grupo");
+            Console.WriteLine("2. [U]nirse con código");
+            Console.WriteLine("\nEstado: Sin grupo activo.");
+
+            
+        }
+
+        public static void PrintMapContent()
+        {
+            Console.WriteLine("📍 MAPA - Punto de Encuentro");
+            Console.WriteLine("--------------------------------");
+            // El mapa "en espera" hasta que haya cálculos
+            Console.WriteLine("      [ . . . MAPA CARGANDO . . . ]      ");
+            Console.WriteLine("\n(Aquí aparecerá la ubicación final calculada)");
+        }
+
+        public static void PrintProfileContent()
+        {
+            Console.WriteLine("👤 PERFIL - Mi Cuenta");
+            Console.WriteLine("--------------------------------");
+            Console.WriteLine("Usuario: Invitado_123");
+            Console.WriteLine("Estado: Online");
+            Console.WriteLine("\n[S] Settings (Ajustes) --> Pulsa 'S' para configurar");
         }
     }
 }
