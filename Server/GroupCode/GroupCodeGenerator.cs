@@ -29,7 +29,7 @@ namespace Server.GroupCode
             return result.ToString();
         }
 
-        public async static Task<string> CreateUniqueGroupCode(AppDbContext context)
+        public static async  Task<string> CreateUniqueGroupCode(AppDbContext context)
         {
             bool isUnique = false;
             string newCode = string.Empty;

@@ -1,6 +1,7 @@
 ﻿using Server.Data;
 using Server.API;
 using Server.Algorithm;
+using Server.GroupCode;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -43,7 +44,7 @@ namespace Server
                 Thread threadsServer = new Thread(serviceAPI);
                 threadsServer.Start(socketAccept);
             }
-           
+
         }
         static void serviceAPI(Object o)
         {
@@ -69,8 +70,10 @@ namespace Server
                     Socket socketAccept = socketServer.Accept();
                     Console.WriteLine("Cliente aceptado");
 
-                    Thread threadServer = new Thread(serviceIdentity);
-                    threadServer.Start(socketAccept);
+                    Thread threadServer = new Thread(async () => // 1. El hilo ve una función 'void' (feliz)
+                    {
+                        await serviceIdentity(socketAccept);    // 2. Dentro, esperamos a la 'Task' (asincronía)
+                    });
                 }
             }
             catch (Exception ex)
@@ -79,7 +82,7 @@ namespace Server
                 Console.WriteLine(ex);
             }
         }
-        static void serviceIdentity(object o)
+        static async Task serviceIdentity(object o)
         {
             Socket socket = (Socket)o;
 
@@ -90,8 +93,25 @@ namespace Server
                 if (option == (int)MainUser.Login)
                 {
                     Console.WriteLine("Cliente logeandose...");
-                    using AppDbContext db = new AppDbContext(connectionString);
-                    checkLogin(socket, db);
+                    using AppDbContext context = new AppDbContext(connectionString);
+                    bool login = checkLogin(socket, context); // que devuelva true? y entonces la pantalla de home y tal
+
+                    while (login)
+                    {
+                        // recibimos la opcion de crear grupo y se inicia
+
+                        //Digamos que ya etsamos en el menu de groupo
+
+                        //mandar codigo
+
+                        string groupCode = await GroupCodeGenerator.CreateUniqueGroupCode(context);
+                        SocketTools.sendString(groupCode,socket);
+                        
+
+
+                        // Opcion recibir datos del grupo
+
+                    }
                 }
                 else if (option == (int)MainUser.Register)
                 {
@@ -120,8 +140,8 @@ namespace Server
         {
             try
             {
-                using AppDbContext db = new AppDbContext(connectionString);
-                db.Database.EnsureCreated();
+                using AppDbContext context = new AppDbContext(connectionString);
+                context.Database.EnsureCreated();
                 Console.WriteLine("Creadas las bases de datos");
                 Thread.Sleep(1000);
                 Console.Clear();
@@ -146,7 +166,7 @@ namespace Server
 
 
 
-        public static void checkLogin(Socket socket, AppDbContext db) // Faltaria metodo que coge el usuario y el password
+        public static bool checkLogin(Socket socket, AppDbContext context) // Faltaria metodo que coge el usuario y el password
         {
             // 1. Recibes los datos que envía el cliente
             string receiveUser = SocketTools.receiveString(socket);
@@ -154,13 +174,15 @@ namespace Server
 
             // 2. Buscas en la tabla Users un registro que coincida con AMBOS campos
             // Usamos LINQ para decir: "Traeme el primero que coincida con esto"
-            var userInDb = db.Users.FirstOrDefault(u => u.username == receiveUser && u.password == receivePassword);
+            var userInDb = context.Users.FirstOrDefault(u => u.username == receiveUser && u.password == receivePassword);
 
             // 3. Si 'userInDb' no es nulo, significa que encontró la combinación correcta
             bool loginSuccessful = (userInDb != null);
 
             // 4. Envías la respuesta al socket
             SocketTools.sendBool(socket, loginSuccessful);
+
+            return loginSuccessful;
         }
         public static void register(Socket socket, AppDbContext context)
         {

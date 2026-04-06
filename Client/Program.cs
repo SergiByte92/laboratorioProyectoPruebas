@@ -20,11 +20,23 @@ namespace Client
             Exit = 0,
         }
 
+        public enum Etiqueta
+        {
+            Bailar = 1,
+            Cena,
+            Deporte,
+            Paseo,
+            Cafe
+        }
+        public enum Algorithm 
+        {
+            PuntoOptimo = 1,
+            Recomendacion,
+        }
         static void Main(string[] args) // Siguiente paso : Grupo, recibe pass, se une, mandan localizacion y hace punto geometrico. Tambien refactorizar
         {
             string ip = "192.168.1.34";
             int port = 1001;
-
             bool appRunning = true;
 
             while (appRunning)
@@ -113,7 +125,7 @@ namespace Client
                         // Por tanto, a partir de aquí NO puedes seguir usando esta conexión.
                         // Si quieres menú post-login real, deberá ir por otro server o con otro protocolo.
 
-                        ShowLoggedMenu();
+                        ShowLoggedMenu(socketClient);
                         tryLogin = false;
                     }
                 }
@@ -126,7 +138,7 @@ namespace Client
             }
         }
 
-        public static void ShowLoggedMenu()
+        public static void ShowLoggedMenu(Socket socket)
         {
             int currentTab = 1; // 1: Home, 2: Group, 3: Map, 4: Profile
             bool inApp = true;
@@ -182,18 +194,102 @@ namespace Client
                                 // Aquí llamarías a tu método de Sockets: CreateGroup();
 
                                 Console.WriteLine("Nombre del grupo");
-                                string nameGroup = Console.ReadLine()?.ToLower().Trim();  
-                                Console.WriteLine("Elige una etiqueta [Bailar,Cena,Deporte,Paseo,Cafe");
+                                string nameGroup = Console.ReadLine()?.ToLower().Trim();
+
+
+
+                                bool groupLabel = true; // Marca de bloque
+
+                                while (groupLabel)
+                                {
+                                    Console.WriteLine("Elige una etiqueta:"); // campo obligario
+                                    Console.WriteLine("1. Bailar | 2. Cena | 3. Deporte | 4. Paseo | 5. Cafe");
+
+                                    // 1. Leemos la respuesta como texto
+                                    string entrada = Console.ReadLine();
+
+                                    // 2. Intentamos convertir el texto a un número (int)
+                                    if (int.TryParse(entrada, out int opcion))
+                                    {
+                                        // 3. Comprobamos si el número existe en nuestro Enum
+                                        if (Enum.IsDefined(typeof(Etiqueta), opcion))
+                                        {
+                                            // 4. "Casteamos" (convertimos) el número al tipo Etiqueta
+                                            Etiqueta seleccion = (Etiqueta)opcion;
+
+                                            // 5. Para obtener el string (ej: "Bailar") simplemente usamos .ToString()
+                                            string etiquetaNombre = seleccion.ToString();
+
+                                            Console.WriteLine($"Has elegido la opción número {opcion}, que es: {etiquetaNombre}");
+                                            groupLabel = false;
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine("Ese número no está en la lista.");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("Por favor, introduce un número válido.");
+                                    }
+                                }
+
                                 Console.WriteLine("Descripción (si no quiere rellenar nada pulse \".\" ");
-                                Console.WriteLine("Metodo [Punto Optimo, Recomendación]");
-                                string method = Console.ReadLine()?.ToLower();
+                                string groupDescription = Console.ReadLine()?.ToLower().Trim();
+
+                                bool algorithm = true;
+                                while (algorithm) 
+                                {
+                                    Console.WriteLine("Metodo [Punto Optimo, Recomendación]");
+                                    string method = Console.ReadLine()?.ToLower();
+
+                                    // 2. Intentamos convertir el texto a un número (int)
+                                    if (int.TryParse(method, out int opcion))
+                                    {
+                                        // 3. Comprobamos si el número existe en nuestro Enum
+                                        if (Enum.IsDefined(typeof(Algorithm), opcion))
+                                        {
+                                            // 4. "Casteamos" (convertimos) el número al tipo Etiqueta
+                                            Algorithm seleccion = (Algorithm)opcion;
+
+                                            // 5. Para obtener el string (ej: "Bailar") simplemente usamos .ToString()
+                                            string methodAlgorithm = seleccion.ToString();
+
+                                            Console.WriteLine($"Has elegido la opción número {opcion}, que es: {methodAlgorithm}");
+                                            algorithm = false;
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine("Ese número no está en la lista.");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine("Por favor, introduce un número válido.");
+                                    }
+                                }
+
                                 Thread.Sleep(1000);
                                 Console.WriteLine("Codigo de grupo");
-                                // Codigo para que se junte la gente
+                                // Codigo para que se junte la gente, lo recibo del servidor
+                                string receiveGroupCode = SocketTools.receiveString(socket);
+                                Console.WriteLine(receiveGroupCode);
+
+                                // Lo suyo es recibir ok y pasar al lobby (sala de espera)
 
                                 Console.WriteLine("Cuando este listo, pulse enter para ir al lobby"); // De aqui a la sala de espera, 
-                                // solo el creador puede darle al ok de los calculos
-                                Console.ReadLine();
+                                // solo el creador puede darle al ok de los calculos nameGroup,etiquetaNombre,groupDescription,methodAlgorithm => Todo son string
+
+                                // Aqui mando los datos para el servidor
+                                Console.ReadKey();
+                                bool looby = true;
+
+                                while (looby) // Sala de espera
+                                {
+
+                                }
+
+
 
                             }
                             else if (input == "u")
@@ -257,7 +353,7 @@ namespace Client
             Console.WriteLine("2. [U]nirse con código");
             Console.WriteLine("\nEstado: Sin grupo activo.");
 
-            
+
         }
 
         public static void PrintMapContent()
