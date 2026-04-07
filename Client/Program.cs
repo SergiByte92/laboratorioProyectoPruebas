@@ -3,7 +3,6 @@ using System.Net.Sockets;
 using NetUtils;
 using Client.MainMenu;
 
-
 namespace Client
 {
     internal class Program
@@ -20,6 +19,12 @@ namespace Client
             Exit = 0,
         }
 
+        public enum MainGroup
+        {
+            CreateGroup = 1,
+            JoinGroup = 2,
+        }
+
         public enum Etiqueta
         {
             Bailar = 1,
@@ -28,11 +33,13 @@ namespace Client
             Paseo,
             Cafe
         }
+
         public enum Algorithm
         {
             PuntoOptimo = 1,
             Recomendacion,
         }
+
         static void Main(string[] args) // Siguiente paso : Grupo, recibe pass, se une, mandan localizacion y hace punto geometrico. Tambien refactorizar
         {
             string ip = "192.168.111.52";
@@ -119,11 +126,6 @@ namespace Client
                     {
                         Console.WriteLine("Login correcto");
                         Console.ReadKey();
-
-                        // OJO:
-                        // El serverIdentity cierra el socket después del login.
-                        // Por tanto, a partir de aquí NO puedes seguir usando esta conexión.
-                        // Si quieres menú post-login real, deberá ir por otro server o con otro protocolo.
 
                         ShowLoggedMenu(socketClient);
                         tryLogin = false;
@@ -266,7 +268,6 @@ namespace Client
                                     Console.WriteLine("Debes escribir algo o '.'");
                                 }
 
-
                                 string methodAlgorithm;
 
                                 while (true)
@@ -298,32 +299,36 @@ namespace Client
                                 Thread.Sleep(1000);
                                 Console.Clear();
 
+                                // IMPORTANTE: avisar al servidor de que la acción es CreateGroup
+                                SocketTools.sendInt(socket, (int)MainGroup.CreateGroup);
+
                                 SocketTools.sendString(nameGroup, socket);
                                 SocketTools.sendString(labelGroup, socket);
                                 SocketTools.sendString(groupDescription, socket);
                                 SocketTools.sendString(methodAlgorithm, socket);
 
-                                string receiveGroupCode = SocketTools.receiveString(socket);
-                                Console.WriteLine("Esperando código de grupo...");
-                                Console.WriteLine($"Código de grupo: {receiveGroupCode}");
-
-              
-
+                                // IMPORTANTE: el orden cambia
+                                // 1. recibimos bool
+                                // 2. si true, recibimos código
                                 bool responseCreateGroup = SocketTools.receiveBool(socket);
 
                                 if (responseCreateGroup)
                                 {
+                                    string receiveGroupCode = SocketTools.receiveString(socket);
+
                                     Console.WriteLine("Ha sido creado correctamente");
+                                    Console.WriteLine($"Código de grupo: {receiveGroupCode}");
                                     Console.WriteLine("Pulsa una tecla para continuar...");
                                     Console.ReadKey();
 
                                     Thread.Sleep(1000);
                                     Console.Clear();
-                                    //Sala de espera
+                                    // Sala de espera
                                 }
-                                else 
+                                else
                                 {
                                     Console.WriteLine("No ha sido posible crear el grupo");
+                                    Console.ReadKey();
                                     Console.Clear();
                                 }
                             }
@@ -333,7 +338,7 @@ namespace Client
                                 Console.Write(">");
                                 Console.ReadLine();
 
-                                //Logica si es correcto o no, si lo es, se pasa al lobby
+                                // Logica si es correcto o no, si lo es, se pasa al lobby
                                 // JoinGroup();
                                 Console.ReadKey();
                             }
@@ -357,7 +362,6 @@ namespace Client
             }
         }
 
-
         public static Socket createSocketConnection(string ip, int port)
         {
             IPAddress address = IPAddress.Parse(ip);
@@ -368,6 +372,7 @@ namespace Client
 
             return socket;
         }
+
         // --- MÉTODOS DE CONTENIDO ---
 
         public static void PrintHomeContent()
@@ -387,8 +392,6 @@ namespace Client
             Console.WriteLine("1. [C]rear nuevo grupo");
             Console.WriteLine("2. [U]nirse con código");
             Console.WriteLine("\nEstado: Sin grupo activo.");
-
-
         }
 
         public static void PrintMapContent()

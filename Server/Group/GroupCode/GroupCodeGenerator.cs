@@ -7,7 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Server.GroupCode
+namespace Server.Group.GroupCode
 {
     public static class GroupCodeGenerator
     {

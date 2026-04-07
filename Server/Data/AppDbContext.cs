@@ -8,6 +8,7 @@ namespace Server.Data
     {
         public DbSet<User> Users { get; set; }
         public DbSet<Group> Groups { get; set; }
+        public DbSet<UserGroup> UsersGroups { get; set; }
         string connectionString;
         public AppDbContext(string _connectionString)
         {
