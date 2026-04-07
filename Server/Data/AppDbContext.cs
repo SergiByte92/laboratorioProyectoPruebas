@@ -18,7 +18,7 @@ namespace Server.Data
             base.OnConfiguring(optionsBuilder);
 
             optionsBuilder.UseNpgsql(connectionString);
-            optionsBuilder.LogTo(Console.WriteLine);
+            optionsBuilder.LogTo(Console.WriteLine); // funcion estatica log to file guardarla en ficheros
         }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -53,9 +53,12 @@ namespace Server.Data
             public string label { get; set; } // motivo de quedada
             public string description { get; set; } // descripción si quiere
             public string method { get; set; } //metodo para averiguar el punto de quedada
-            //public double longitud { get; set; } // Estos datos hasta que no lo calculo no lo se, quizas otra tabla para esto
-            //public double latitud { get; set; }
-            //public string city { get; set; }
+            public double? longitud { get; set; } // Estos datos hasta que no lo calculo no lo se, quizas otra tabla para esto
+            public double? latitud { get; set; }
+            public string? city { get; set; }
+            public int userId { get; set; }   // FK
+            public User user { get; set; }    // navegación
+
             public bool isActive { get; set; } // mientras se une la gente deberia estar activo, una vez que se pasa a calcular el punto optimo, deberia pasar a false
             public DateTime created_at { get; set; } // añadir detector de luz?
 

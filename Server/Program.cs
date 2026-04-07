@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using NetUtils;
 using System.Runtime.CompilerServices;
+using static Server.Data.AppDbContext;
 
 namespace Server
 {
@@ -28,11 +29,11 @@ namespace Server
 
         public static string usuario = "Pepe";
         public static int password = 1234;
-        public static string connectionString = "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
+        public static string connectionString = "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
 
         static void serverAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.1.34"); // hacerla auto
+            IPAddress address = IPAddress.Parse("192.168.111.52"); // hacerla auto
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -55,7 +56,7 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.1.34"); // hacerla auto
+                IPAddress address = IPAddress.Parse("192.168.111.52"); // hacerla auto
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
                 Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -74,6 +75,7 @@ namespace Server
                     {
                         await serviceIdentity(socketAccept);    // 2. Dentro, esperamos a la 'Task' (asincronía)
                     });
+                    threadServer.Start();
                 }
             }
             catch (Exception ex)
@@ -94,9 +96,9 @@ namespace Server
                 {
                     Console.WriteLine("Cliente logeandose...");
                     using AppDbContext context = new AppDbContext(connectionString);
-                    bool login = checkLogin(socket, context); // que devuelva true? y entonces la pantalla de home y tal
+                    User? currentUser = checkLogin(socket, context); // que devuelva true? y entonces la pantalla de home y tal
 
-                    while (login)
+                    while (currentUser !=null)
                     {
                         // recibimos la opcion de crear grupo y se inicia
 
@@ -105,19 +107,50 @@ namespace Server
                         //mandar codigo
 
                         string groupCode = await GroupCodeGenerator.CreateUniqueGroupCode(context);
-                        SocketTools.sendString(groupCode,socket);
                         
-
+                        string groupName = SocketTools.receiveString(socket);
+                        string groupLabel = SocketTools.receiveString(socket);
+                        string groupDescription = SocketTools.receiveString(socket);
+                        string groupMethod = SocketTools.receiveString(socket);
+                        
+                        SocketTools.sendString(groupCode, socket);
 
                         // Opcion recibir datos del grupo
+
+                        AppDbContext.Group groupAdd = new AppDbContext.Group();
+
+                        groupAdd.code = groupCode;
+                        groupAdd.name = groupName;
+                        groupAdd.label = groupLabel;
+                        groupAdd.description = groupDescription;
+                        groupAdd.method = groupMethod;
+                        groupAdd.user = currentUser;
+                        groupAdd.isActive = true;
+
+                        try
+                        {
+                            context.Groups.Add(groupAdd);
+                            context.SaveChanges();
+                            SocketTools.sendBool(socket, true);
+
+                        }
+                        catch (Exception ex) 
+                        {
+                            SocketTools.sendBool(socket, false);
+                            Console.WriteLine(ex.ToString());
+
+                        }
+
 
                     }
                 }
                 else if (option == (int)MainUser.Register)
                 {
                     Console.WriteLine("Cliente registrandose...");
-                    using AppDbContext db = new AppDbContext(connectionString);
-                    register(socket, db);
+                    using AppDbContext context = new AppDbContext(connectionString);
+                    register(socket, context);
+                    Thread.Sleep(1000);
+                    Console.Clear();
                 }
                 else
                 {
@@ -165,25 +198,20 @@ namespace Server
         }
 
 
-
-        public static bool checkLogin(Socket socket, AppDbContext context) // Faltaria metodo que coge el usuario y el password
+        public static User? checkLogin(Socket socket, AppDbContext context)
         {
-            // 1. Recibes los datos que envía el cliente
             string receiveUser = SocketTools.receiveString(socket);
             string receivePassword = SocketTools.receiveString(socket);
 
-            // 2. Buscas en la tabla Users un registro que coincida con AMBOS campos
-            // Usamos LINQ para decir: "Traeme el primero que coincida con esto"
-            var userInDb = context.Users.FirstOrDefault(u => u.username == receiveUser && u.password == receivePassword);
+            var userInDb = context.Users
+                .FirstOrDefault(u => u.username == receiveUser && u.password == receivePassword);
 
-            // 3. Si 'userInDb' no es nulo, significa que encontró la combinación correcta
             bool loginSuccessful = (userInDb != null);
-
-            // 4. Envías la respuesta al socket
             SocketTools.sendBool(socket, loginSuccessful);
 
-            return loginSuccessful;
+            return userInDb;
         }
+
         public static void register(Socket socket, AppDbContext context)
         {
             string user = SocketTools.receiveString(socket);
@@ -194,6 +222,7 @@ namespace Server
             addUser(context, user, email, password, date);
 
             SocketTools.sendBool(socket, true);
+            Console.WriteLine("Cliente registrado correctamente");
 
         }
         public static void addUser(AppDbContext context, string user, string email, string password, string date)

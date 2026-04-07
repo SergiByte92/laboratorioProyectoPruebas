@@ -28,14 +28,14 @@ namespace Client
             Paseo,
             Cafe
         }
-        public enum Algorithm 
+        public enum Algorithm
         {
             PuntoOptimo = 1,
             Recomendacion,
         }
         static void Main(string[] args) // Siguiente paso : Grupo, recibe pass, se une, mandan localizacion y hace punto geometrico. Tambien refactorizar
         {
-            string ip = "192.168.1.34";
+            string ip = "192.168.111.52";
             int port = 1001;
             bool appRunning = true;
 
@@ -191,36 +191,44 @@ namespace Client
                                 Console.WriteLine("\n[Lógica] Iniciando creación de grupo...");
                                 Thread.Sleep(1000);
                                 Console.Clear();
-                                // Aquí llamarías a tu método de Sockets: CreateGroup();
 
-                                Console.WriteLine("Nombre del grupo");
-                                string nameGroup = Console.ReadLine()?.ToLower().Trim();
+                                string nameGroup;
 
+                                while (true)
+                                {
+                                    Console.WriteLine("Nombre del grupo (obligatorio):");
+                                    Console.Write(">");
 
+                                    nameGroup = Console.ReadLine()?.Trim();
 
-                                bool groupLabel = true; // Marca de bloque
+                                    if (string.IsNullOrWhiteSpace(nameGroup))
+                                    {
+                                        Console.WriteLine("El nombre no puede estar vacío.");
+                                        continue;
+                                    }
+
+                                    break;
+                                }
+
+                                string labelGroup = string.Empty;
+                                bool groupLabel = true;
 
                                 while (groupLabel)
                                 {
-                                    Console.WriteLine("Elige una etiqueta:"); // campo obligario
+                                    Console.WriteLine("Elige una etiqueta:");
                                     Console.WriteLine("1. Bailar | 2. Cena | 3. Deporte | 4. Paseo | 5. Cafe");
+                                    Console.Write(">");
 
-                                    // 1. Leemos la respuesta como texto
-                                    string entrada = Console.ReadLine();
+                                    string inputLabel = Console.ReadLine();
 
-                                    // 2. Intentamos convertir el texto a un número (int)
-                                    if (int.TryParse(entrada, out int opcion))
+                                    if (int.TryParse(inputLabel, out int opcion))
                                     {
-                                        // 3. Comprobamos si el número existe en nuestro Enum
                                         if (Enum.IsDefined(typeof(Etiqueta), opcion))
                                         {
-                                            // 4. "Casteamos" (convertimos) el número al tipo Etiqueta
                                             Etiqueta seleccion = (Etiqueta)opcion;
+                                            labelGroup = seleccion.ToString();
 
-                                            // 5. Para obtener el string (ej: "Bailar") simplemente usamos .ToString()
-                                            string etiquetaNombre = seleccion.ToString();
-
-                                            Console.WriteLine($"Has elegido la opción número {opcion}, que es: {etiquetaNombre}");
+                                            Console.WriteLine($"Has elegido la opción número {opcion}, que es: {labelGroup}");
                                             groupLabel = false;
                                         }
                                         else
@@ -234,63 +242,90 @@ namespace Client
                                     }
                                 }
 
-                                Console.WriteLine("Descripción (si no quiere rellenar nada pulse \".\" ");
-                                string groupDescription = Console.ReadLine()?.ToLower().Trim();
+                                string groupDescription;
 
-                                bool algorithm = true;
-                                while (algorithm) 
+                                while (true)
                                 {
-                                    Console.WriteLine("Metodo [Punto Optimo, Recomendación]");
-                                    string method = Console.ReadLine()?.ToLower();
+                                    Console.WriteLine("Descripción (obligatorio o '.' para vacío):");
+                                    Console.Write(">");
 
-                                    // 2. Intentamos convertir el texto a un número (int)
-                                    if (int.TryParse(method, out int opcion))
+                                    string inputDescription = Console.ReadLine()?.Trim();
+
+                                    if (inputDescription == ".")
                                     {
-                                        // 3. Comprobamos si el número existe en nuestro Enum
-                                        if (Enum.IsDefined(typeof(Algorithm), opcion))
-                                        {
-                                            // 4. "Casteamos" (convertimos) el número al tipo Etiqueta
-                                            Algorithm seleccion = (Algorithm)opcion;
-
-                                            // 5. Para obtener el string (ej: "Bailar") simplemente usamos .ToString()
-                                            string methodAlgorithm = seleccion.ToString();
-
-                                            Console.WriteLine($"Has elegido la opción número {opcion}, que es: {methodAlgorithm}");
-                                            algorithm = false;
-                                        }
-                                        else
-                                        {
-                                            Console.WriteLine("Ese número no está en la lista.");
-                                        }
+                                        groupDescription = string.Empty;
+                                        break;
                                     }
-                                    else
+
+                                    if (!string.IsNullOrWhiteSpace(inputDescription))
+                                    {
+                                        groupDescription = inputDescription;
+                                        break;
+                                    }
+
+                                    Console.WriteLine("Debes escribir algo o '.'");
+                                }
+
+
+                                string methodAlgorithm;
+
+                                while (true)
+                                {
+                                    Console.WriteLine("Método:");
+                                    Console.WriteLine("1. PuntoOptimo | 2. Recomendacion");
+                                    Console.Write(">");
+
+                                    string inputMethod = Console.ReadLine()?.Trim();
+
+                                    if (!int.TryParse(inputMethod, out int opcion))
                                     {
                                         Console.WriteLine("Por favor, introduce un número válido.");
+                                        continue;
                                     }
+
+                                    if (!Enum.IsDefined(typeof(Algorithm), opcion))
+                                    {
+                                        Console.WriteLine("Ese número no está en la lista.");
+                                        continue;
+                                    }
+
+                                    methodAlgorithm = ((Algorithm)opcion).ToString();
+
+                                    Console.WriteLine($"Has elegido: {methodAlgorithm}");
+                                    break;
                                 }
 
                                 Thread.Sleep(1000);
-                                Console.WriteLine("Codigo de grupo");
-                                // Codigo para que se junte la gente, lo recibo del servidor
+                                Console.Clear();
+
+                                SocketTools.sendString(nameGroup, socket);
+                                SocketTools.sendString(labelGroup, socket);
+                                SocketTools.sendString(groupDescription, socket);
+                                SocketTools.sendString(methodAlgorithm, socket);
+
                                 string receiveGroupCode = SocketTools.receiveString(socket);
-                                Console.WriteLine(receiveGroupCode);
+                                Console.WriteLine("Esperando código de grupo...");
+                                Console.WriteLine($"Código de grupo: {receiveGroupCode}");
 
-                                // Lo suyo es recibir ok y pasar al lobby (sala de espera)
+              
 
-                                Console.WriteLine("Cuando este listo, pulse enter para ir al lobby"); // De aqui a la sala de espera, 
-                                // solo el creador puede darle al ok de los calculos nameGroup,etiquetaNombre,groupDescription,methodAlgorithm => Todo son string
+                                bool responseCreateGroup = SocketTools.receiveBool(socket);
 
-                                // Aqui mando los datos para el servidor
-                                Console.ReadKey();
-                                bool looby = true;
-
-                                while (looby) // Sala de espera
+                                if (responseCreateGroup)
                                 {
+                                    Console.WriteLine("Ha sido creado correctamente");
+                                    Console.WriteLine("Pulsa una tecla para continuar...");
+                                    Console.ReadKey();
 
+                                    Thread.Sleep(1000);
+                                    Console.Clear();
+                                    //Sala de espera
                                 }
-
-
-
+                                else 
+                                {
+                                    Console.WriteLine("No ha sido posible crear el grupo");
+                                    Console.Clear();
+                                }
                             }
                             else if (input == "u")
                             {
