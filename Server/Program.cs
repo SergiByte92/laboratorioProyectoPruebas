@@ -116,7 +116,7 @@ namespace Server
 
                             case (int)MainGroup.JoinGroup:
                                 {
-                                    SocketTools.sendBool(socket, false);
+                                    SocketTools.sendBool(socket, false); // pantalla de espera
                                     break;
                                 }
 

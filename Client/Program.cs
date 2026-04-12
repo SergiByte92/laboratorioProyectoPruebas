@@ -190,6 +190,7 @@ namespace Client
                         case 2: // Acciones dentro de GROUP
                             if (input == "c")
                             {
+                                SocketTools.sendInt(socket, 1); // opción
                                 Console.WriteLine("\n[Lógica] Iniciando creación de grupo...");
                                 Thread.Sleep(1000);
                                 Console.Clear();
@@ -323,7 +324,10 @@ namespace Client
 
                                     Thread.Sleep(1000);
                                     Console.Clear();
-                                    // Sala de espera
+
+                                    // Sala de espera, si es true , le enseño cosas al creador, si no no,
+                                    // Si lo crea, evidentemente el grupo esta activo, no tengo que comprobar nada
+                                    JoinGroup(true, nameGroup);
                                 }
                                 else
                                 {
@@ -334,6 +338,7 @@ namespace Client
                             }
                             else if (input == "u")
                             {
+                                SocketTools.sendInt(socket, 2); // opción
                                 Console.WriteLine("\n[Lógica] Introduce el código del grupo:");
                                 Console.Write(">");
                                 Console.ReadLine();
@@ -410,6 +415,17 @@ namespace Client
             Console.WriteLine("Usuario: Invitado_123");
             Console.WriteLine("Estado: Online");
             Console.WriteLine("\n[S] Settings (Ajustes) --> Pulsa 'S' para configurar");
+        }
+        public static void JoinGroup(bool userOwner, string nameGroup,)  // si es true, tendra opciones especiales
+        {
+            // Nombre del grupo?
+
+            Console.WriteLine($"👤 {nameGroup}");
+            Console.WriteLine("--------------------------------");
+            Console.WriteLine("      [ . . . SALA DE ESPERA . . . ]      ");
+            Console.WriteLine("--------------------------------");
+
+
         }
     }
 }
