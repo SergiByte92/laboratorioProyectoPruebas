@@ -25,7 +25,7 @@ namespace Server.Group.GroupSessions // Si peta, el servidor debería al encende
             return session;
         }
 
-        // Intenta unir un usuario a un grupo existente
+        // Intenta unir un usuario a un grupo existente aaa
         public bool TryJoinGroup(string groupCode, int userId, string username)
         {
             // Busca la sesión por código
