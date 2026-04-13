@@ -458,7 +458,10 @@ namespace Client
                 Console.WriteLine("\nOpciones:");
                 Console.WriteLine("1. Refrescar");
                 Console.WriteLine("2. Salir del grupo");
-                Console.WriteLine("3. Start");
+                if (userOwner)
+                {
+                    Console.WriteLine("3. Start");
+                }
                 Console.Write(">");
 
                 string? input = Console.ReadLine()?.Trim();
@@ -487,27 +490,29 @@ namespace Client
                         inLobby = false;
                         break;
                     case (int)LobbyOption.Start:
-                        SocketTools.sendInt(socket,(int)LobbyOption.Start);
-                        Console.WriteLine("Comenzando los calculos...");
-                        Console.ReadKey();
-                        
+                        // El cliente solo avisa al servidor de que quiere iniciar el grupo.
+                        SocketTools.sendInt(socket, (int)LobbyOption.Start);
+
+                        // El servidor decide si puede o no puede iniciar:
+                        // - false -> no eres owner o no se pudo iniciar
+                        // - true  -> grupo iniciado correctamente
                         bool responseStart = SocketTools.receiveBool(socket);
 
-                        if (responseStart) 
+                        if (!responseStart)
                         {
-                            // Mando la localizacion
-
-                            // Recibo respuesta
-                            Console.Clear();
-                            Console.WriteLine("PUNTO OPTIMO");
-                            Console.WriteLine("--------------------------------");
-                            Console.WriteLine("> El punto optimo es : ");
-                            Console.WriteLine("> Tardas X tiempo.");
-                            Console.WriteLine("> Necesitas XXXX");
-
+                            Console.WriteLine("\nNo eres el creador del grupo o no se ha podido iniciar.");
+                            Console.ReadKey();
+                            break;
                         }
 
-                        // Aqui se avanzaria al mapa/calculo // Start => Pantalla limpia y solo el punto optimo y fuera
+                        Console.WriteLine("\nGrupo iniciado correctamente.");
+                        Console.WriteLine("Comenzando recogida de ubicación...");
+                        Console.ReadKey();
+
+                        // Aquí iría el siguiente paso:
+                        // 1. pedir latitud/longitud al usuario
+                        // 2. enviarlas al servidor
+                        // 3. esperar siguiente respuesta
                         break;
 
                     default:

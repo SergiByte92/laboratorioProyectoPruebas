@@ -48,7 +48,7 @@ namespace Server.Group
                     isActive = true,
                     created_at = DateTime.UtcNow
                 };
-
+                
                 _context.Groups.Add(groupAdd);
                 await _context.SaveChangesAsync();
 

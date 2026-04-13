@@ -6,12 +6,12 @@ using System.Threading.Tasks;
 
 namespace Server.Group.GroupSessions
 {
-    public sealed class MemberSubmission
+    public sealed class GroupMember
     {
         public int UserId { get; }
         public string Username { get; }
 
-        public MemberSubmission(int userId, string username)
+        public GroupMember(int userId, string username)
         {
             UserId = userId;
             Username = username;

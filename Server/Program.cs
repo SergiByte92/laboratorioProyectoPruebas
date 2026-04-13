@@ -334,6 +334,7 @@ namespace Server
 
                         return;
                     case 3: // start ( solo owner )
+                        
 
                         if (user.id != session.OwnerUserId)
                         {
