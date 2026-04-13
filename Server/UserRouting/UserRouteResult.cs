@@ -1,4 +1,4 @@
-﻿namespace Server.User
+﻿namespace Server.UserRouting
 {
     internal class UserRouteResult
     {
