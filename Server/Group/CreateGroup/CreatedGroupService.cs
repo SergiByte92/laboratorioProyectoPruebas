@@ -16,7 +16,7 @@ namespace Server.Group
             _context = context;
         }
 
-        public async Task ExecuteAsync(Socket socket, User currentUser)
+        public async Task<(bool Success, int GroupId, string GroupCode)> ExecuteAsync(Socket socket, User currentUser)
         {
             string groupName = SocketTools.receiveString(socket);
             string groupLabel = SocketTools.receiveString(socket);
@@ -28,12 +28,12 @@ namespace Server.Group
                 string.IsNullOrWhiteSpace(groupMethod))
             {
                 SocketTools.sendBool(socket, false);
-                return;
+                return (false, 0, string.Empty);
             }
 
             string groupCode = await GroupCodeGenerator.CreateUniqueGroupCode(_context);
 
-            using var transaction = _context.Database.BeginTransaction();
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
@@ -50,7 +50,7 @@ namespace Server.Group
                 };
 
                 _context.Groups.Add(groupAdd);
-                _context.SaveChanges();
+                await _context.SaveChangesAsync();
 
                 var userInGroup = new AppDbContext.UserGroup
                 {
@@ -59,20 +59,25 @@ namespace Server.Group
                 };
 
                 _context.UsersGroups.Add(userInGroup);
-                _context.SaveChanges();
+                await _context.SaveChangesAsync();
 
-                transaction.Commit();
+                await transaction.CommitAsync();
 
                 SocketTools.sendBool(socket, true);
                 SocketTools.sendString(groupCode, socket);
+
+                return (true, groupAdd.id, groupCode);
             }
             catch (Exception ex)
             {
-                transaction.Rollback();
+                await transaction.RollbackAsync();
 
                 SocketTools.sendBool(socket, false);
+
                 Console.WriteLine("Error creando grupo:");
                 Console.WriteLine(ex);
+
+                return (false, 0, string.Empty);
             }
         }
     }

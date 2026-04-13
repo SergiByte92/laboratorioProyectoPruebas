@@ -78,7 +78,7 @@ namespace Client.MainMenu
             {
                 try
                 {
-                    using Socket socketClient = createSocketConnection(ip, port);
+                    using Socket socketClient = CreateSocketConnection(ip, port);
 
                     bool datoEnviado = Menu.Register(socketClient);
 
@@ -116,5 +116,6 @@ namespace Client.MainMenu
             SocketTools.sendString(password, socket);
             SocketTools.sendDate(birthDate, socket);
         }
+
     }
 }

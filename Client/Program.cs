@@ -13,12 +13,6 @@ namespace Client
             Register = 2,
         }
 
-        public enum MainLogin
-        {
-            MeetingPoint = 1,
-            Exit = 0,
-        }
-
         public enum MainGroup
         {
             CreateGroup = 1,
@@ -40,9 +34,16 @@ namespace Client
             Recomendacion,
         }
 
-        static void Main(string[] args) // Siguiente paso : Grupo, recibe pass, se une, mandan localizacion y hace punto geometrico. Tambien refactorizar
+        public enum LobbyOption
         {
-            string ip = "192.168.111.52";
+            Refresh = 1,
+            Exit = 2,
+            Start = 3
+        }
+
+        static void Main(string[] args)
+        {
+            string ip = "192.168.111.48";
             int port = 1001;
             bool appRunning = true;
 
@@ -100,15 +101,22 @@ namespace Client
 
                 Console.WriteLine("Usuario");
                 Console.Write(">");
-                string user = Console.ReadLine();
+                string? user = Console.ReadLine();
 
                 Console.WriteLine("Contraseña");
                 Console.Write(">");
-                string password = Console.ReadLine();
+                string? password = Console.ReadLine();
+
+                if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(password))
+                {
+                    Console.WriteLine("Usuario y contraseña son obligatorios.");
+                    Console.ReadKey();
+                    continue;
+                }
 
                 try
                 {
-                    using Socket socketClient = createSocketConnection(ip, port);
+                    using Socket socketClient = CreateSocketConnection(ip, port);
 
                     SocketTools.sendInt(socketClient, (int)MainMenuOption.Login);
                     SocketTools.sendString(user, socketClient);
@@ -118,13 +126,12 @@ namespace Client
 
                     if (!login)
                     {
-                        Console.WriteLine($"Acceso: {login}");
-                        Console.WriteLine("Compruebe que escribe bien sus datos");
+                        Console.WriteLine("Compruebe que escribe bien sus datos.");
                         Console.ReadKey();
                     }
                     else
                     {
-                        Console.WriteLine("Login correcto");
+                        Console.WriteLine("Login correcto.");
                         Console.ReadKey();
 
                         ShowLoggedMenu(socketClient);
@@ -133,7 +140,7 @@ namespace Client
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("No se ha podido completar el login");
+                    Console.WriteLine("No se ha podido completar el login.");
                     Console.WriteLine(ex.Message);
                     Console.ReadKey();
                 }
@@ -150,16 +157,22 @@ namespace Client
                 Console.Clear();
                 Console.WriteLine("=== JUST MEETING POINT ===");
 
-                // --- 1. SWITCH DE VISUALIZACIÓN (Pintar contenido) ---
                 switch (currentTab)
                 {
-                    case 1: PrintHomeContent(); break;
-                    case 2: PrintGroupContent(); break;
-                    case 3: PrintMapContent(); break;
-                    case 4: PrintProfileContent(); break;
+                    case 1:
+                        PrintHomeContent();
+                        break;
+                    case 2:
+                        PrintGroupContent();
+                        break;
+                    case 3:
+                        PrintMapContent();
+                        break;
+                    case 4:
+                        PrintProfileContent();
+                        break;
                 }
 
-                // --- TAB BAR (Siempre visible) ---
                 Console.WriteLine("\n==============================");
                 Console.WriteLine($"{(currentTab == 1 ? "[HOME]" : " Home ")} | " +
                                   $"{(currentTab == 2 ? "[GROUP]" : " Group ")} | " +
@@ -167,207 +180,349 @@ namespace Client
                                   $"{(currentTab == 4 ? "[PERFIL]" : " Perfil ")}");
                 Console.WriteLine("==============================");
                 Console.WriteLine("Selecciona (1-4) o usa las letras de acción (C, U, S, etc.)");
-                Console.WriteLine("Pulsa 0 para Salir.");
+                Console.WriteLine("Pulsa 0 para salir.");
                 Console.Write(">");
 
-                // --- 2. CAPTURA DE INPUT (Leemos string para aceptar letras y números) ---
-                string input = Console.ReadLine()?.ToLower();
+                string? input = Console.ReadLine()?.Trim().ToLower();
 
-                // --- 3. LÓGICA DE NAVEGACIÓN (Prioridad: Cambiar de pestaña) ---
                 if (int.TryParse(input, out int tab) && tab >= 1 && tab <= 4)
                 {
                     currentTab = tab;
+                    continue;
                 }
-                else if (input == "0")
+
+                if (input == "0")
                 {
                     inApp = false;
+                    continue;
                 }
-                else
+
+                switch (currentTab)
                 {
-                    // --- 4. SWITCH DE ACCIONES (Depende de en qué pestaña estemos) ---
-                    switch (currentTab)
-                    {
-                        case 2: // Acciones dentro de GROUP
-                            if (input == "c")
+                    case 2:
+                        {
+                            // Si devuelve false, significa que el flujo de grupo
+                            // ha consumido/cerrado la sesión lógica actual
+                            bool keepUsingSocket = HandleGroupTab(socket, input);
+
+                            if (!keepUsingSocket)
                             {
-                                SocketTools.sendInt(socket, 1); // opción
-                                Console.WriteLine("\n[Lógica] Iniciando creación de grupo...");
-                                Thread.Sleep(1000);
-                                Console.Clear();
-
-                                string nameGroup;
-
-                                while (true)
-                                {
-                                    Console.WriteLine("Nombre del grupo (obligatorio):");
-                                    Console.Write(">");
-
-                                    nameGroup = Console.ReadLine()?.Trim();
-
-                                    if (string.IsNullOrWhiteSpace(nameGroup))
-                                    {
-                                        Console.WriteLine("El nombre no puede estar vacío.");
-                                        continue;
-                                    }
-
-                                    break;
-                                }
-
-                                string labelGroup = string.Empty;
-                                bool groupLabel = true;
-
-                                while (groupLabel)
-                                {
-                                    Console.WriteLine("Elige una etiqueta:");
-                                    Console.WriteLine("1. Bailar | 2. Cena | 3. Deporte | 4. Paseo | 5. Cafe");
-                                    Console.Write(">");
-
-                                    string inputLabel = Console.ReadLine();
-
-                                    if (int.TryParse(inputLabel, out int opcion))
-                                    {
-                                        if (Enum.IsDefined(typeof(Etiqueta), opcion))
-                                        {
-                                            Etiqueta seleccion = (Etiqueta)opcion;
-                                            labelGroup = seleccion.ToString();
-
-                                            Console.WriteLine($"Has elegido la opción número {opcion}, que es: {labelGroup}");
-                                            groupLabel = false;
-                                        }
-                                        else
-                                        {
-                                            Console.WriteLine("Ese número no está en la lista.");
-                                        }
-                                    }
-                                    else
-                                    {
-                                        Console.WriteLine("Por favor, introduce un número válido.");
-                                    }
-                                }
-
-                                string groupDescription;
-
-                                while (true)
-                                {
-                                    Console.WriteLine("Descripción (obligatorio o '.' para vacío):");
-                                    Console.Write(">");
-
-                                    string inputDescription = Console.ReadLine()?.Trim();
-
-                                    if (inputDescription == ".")
-                                    {
-                                        groupDescription = string.Empty;
-                                        break;
-                                    }
-
-                                    if (!string.IsNullOrWhiteSpace(inputDescription))
-                                    {
-                                        groupDescription = inputDescription;
-                                        break;
-                                    }
-
-                                    Console.WriteLine("Debes escribir algo o '.'");
-                                }
-
-                                string methodAlgorithm;
-
-                                while (true)
-                                {
-                                    Console.WriteLine("Método:");
-                                    Console.WriteLine("1. PuntoOptimo | 2. Recomendacion");
-                                    Console.Write(">");
-
-                                    string inputMethod = Console.ReadLine()?.Trim();
-
-                                    if (!int.TryParse(inputMethod, out int opcion))
-                                    {
-                                        Console.WriteLine("Por favor, introduce un número válido.");
-                                        continue;
-                                    }
-
-                                    if (!Enum.IsDefined(typeof(Algorithm), opcion))
-                                    {
-                                        Console.WriteLine("Ese número no está en la lista.");
-                                        continue;
-                                    }
-
-                                    methodAlgorithm = ((Algorithm)opcion).ToString();
-
-                                    Console.WriteLine($"Has elegido: {methodAlgorithm}");
-                                    break;
-                                }
-
-                                Thread.Sleep(1000);
-                                Console.Clear();
-
-                                // IMPORTANTE: avisar al servidor de que la acción es CreateGroup
-                                SocketTools.sendInt(socket, (int)MainGroup.CreateGroup);
-
-                                SocketTools.sendString(nameGroup, socket);
-                                SocketTools.sendString(labelGroup, socket);
-                                SocketTools.sendString(groupDescription, socket);
-                                SocketTools.sendString(methodAlgorithm, socket);
-
-                                // IMPORTANTE: el orden cambia
-                                // 1. recibimos bool
-                                // 2. si true, recibimos código
-                                bool responseCreateGroup = SocketTools.receiveBool(socket);
-
-                                if (responseCreateGroup)
-                                {
-                                    string receiveGroupCode = SocketTools.receiveString(socket);
-
-                                    Console.WriteLine("Ha sido creado correctamente");
-                                    Console.WriteLine($"Código de grupo: {receiveGroupCode}");
-                                    Console.WriteLine("Pulsa una tecla para continuar...");
-                                    Console.ReadKey();
-
-                                    Thread.Sleep(1000);
-                                    Console.Clear();
-
-                                    // Sala de espera, si es true , le enseño cosas al creador, si no no,
-                                    // Si lo crea, evidentemente el grupo esta activo, no tengo que comprobar nada
-                                    JoinGroup(true, nameGroup);
-                                }
-                                else
-                                {
-                                    Console.WriteLine("No ha sido posible crear el grupo");
-                                    Console.ReadKey();
-                                    Console.Clear();
-                                }
+                                inApp = false;
                             }
-                            else if (input == "u")
-                            {
-                                SocketTools.sendInt(socket, 2); // opción
-                                Console.WriteLine("\n[Lógica] Introduce el código del grupo:");
-                                Console.Write(">");
-                                Console.ReadLine();
 
-                                // Logica si es correcto o no, si lo es, se pasa al lobby
-                                // JoinGroup();
-                                Console.ReadKey();
-                            }
                             break;
+                        }
 
-                        case 4: // Acciones dentro de PROFILE
-                            if (input == "s")
-                            {
-                                Console.WriteLine("\n[Lógica] Entrando en Ajustes...");
-                                // ShowSettings();
-                                Console.ReadKey();
-                            }
-                            break;
+                    case 4:
+                        if (input == "s")
+                        {
+                            Console.WriteLine("\n[Lógica] Entrando en Ajustes...");
+                            Console.ReadKey();
+                        }
+                        else
+                        {
+                            Console.WriteLine("\nOpción no reconocida.");
+                            Thread.Sleep(800);
+                        }
+                        break;
 
-                        default:
-                            Console.WriteLine("\nOpción no reconocida. Intenta de nuevo.");
-                            Thread.Sleep(1000); // Pausa breve para que el usuario lea el error
-                            break;
-                    }
+                    default:
+                        Console.WriteLine("\nOpción no reconocida.");
+                        Thread.Sleep(800);
+                        break;
                 }
             }
         }
 
-        public static Socket createSocketConnection(string ip, int port)
+        // Devuelve false cuando el flujo ya no debe seguir usando el socket actual
+        public static bool HandleGroupTab(Socket socket, string? input)
+        {
+            if (input == "c")
+            {
+                return CreateGroupFlow(socket);
+            }
+            else if (input == "u")
+            {
+                return JoinGroupFlow(socket);
+            }
+            else
+            {
+                Console.WriteLine("\nOpción no reconocida.");
+                Thread.Sleep(800);
+                return true;
+            }
+        }
+
+        // IMPORTANTE:
+        // Tu servidor aún no implementa CreateGroup real en Program.cs
+        // así que por ahora probablemente devolverá false.
+        public static bool CreateGroupFlow(Socket socket)
+        {
+            Console.WriteLine("\n[Lógica] Iniciando creación de grupo...");
+            Thread.Sleep(600);
+            Console.Clear();
+
+            string nameGroup;
+            while (true)
+            {
+                Console.WriteLine("Nombre del grupo (obligatorio):");
+                Console.Write(">");
+
+                nameGroup = Console.ReadLine()?.Trim() ?? string.Empty;
+
+                if (string.IsNullOrWhiteSpace(nameGroup))
+                {
+                    Console.WriteLine("El nombre no puede estar vacío.");
+                    continue;
+                }
+
+                break;
+            }
+
+            string labelGroup = string.Empty;
+            while (true)
+            {
+                Console.WriteLine("Elige una etiqueta:");
+                Console.WriteLine("1. Bailar | 2. Cena | 3. Deporte | 4. Paseo | 5. Cafe");
+                Console.Write(">");
+
+                string? inputLabel = Console.ReadLine();
+
+                if (!int.TryParse(inputLabel, out int opcion))
+                {
+                    Console.WriteLine("Por favor, introduce un número válido.");
+                    continue;
+                }
+
+                if (!Enum.IsDefined(typeof(Etiqueta), opcion))
+                {
+                    Console.WriteLine("Ese número no está en la lista.");
+                    continue;
+                }
+
+                labelGroup = ((Etiqueta)opcion).ToString();
+                Console.WriteLine($"Has elegido: {labelGroup}");
+                break;
+            }
+
+            string groupDescription;
+            while (true)
+            {
+                Console.WriteLine("Descripción (obligatorio o '.' para vacío):");
+                Console.Write(">");
+
+                string inputDescription = Console.ReadLine()?.Trim() ?? string.Empty;
+
+                if (inputDescription == ".")
+                {
+                    groupDescription = string.Empty;
+                    break;
+                }
+
+                if (!string.IsNullOrWhiteSpace(inputDescription))
+                {
+                    groupDescription = inputDescription;
+                    break;
+                }
+
+                Console.WriteLine("Debes escribir algo o '.'");
+            }
+
+            string methodAlgorithm;
+            while (true)
+            {
+                Console.WriteLine("Método:");
+                Console.WriteLine("1. PuntoOptimo | 2. Recomendacion");
+                Console.Write(">");
+
+                string inputMethod = Console.ReadLine()?.Trim() ?? string.Empty;
+
+                if (!int.TryParse(inputMethod, out int opcion))
+                {
+                    Console.WriteLine("Por favor, introduce un número válido.");
+                    continue;
+                }
+
+                if (!Enum.IsDefined(typeof(Algorithm), opcion))
+                {
+                    Console.WriteLine("Ese número no está en la lista.");
+                    continue;
+                }
+
+                methodAlgorithm = ((Algorithm)opcion).ToString();
+                Console.WriteLine($"Has elegido: {methodAlgorithm}");
+                break;
+            }
+
+            SocketTools.sendInt(socket, (int)MainGroup.CreateGroup);
+            SocketTools.sendString(nameGroup, socket);
+            SocketTools.sendString(labelGroup, socket);
+            SocketTools.sendString(groupDescription, socket);
+            SocketTools.sendString(methodAlgorithm, socket);
+
+            bool responseCreateGroup = SocketTools.receiveBool(socket);
+
+            if (responseCreateGroup)
+            {
+                string receiveGroupCode = SocketTools.receiveString(socket);
+
+                Console.WriteLine("Grupo creado correctamente.");
+                Console.WriteLine($"Código de grupo: {receiveGroupCode}");
+                Console.WriteLine("Pulsa una tecla para entrar al lobby...");
+                Console.ReadKey();
+
+                // Esto solo funcionará de verdad cuando el servidor,
+                // después de crear, te meta también en LobbyGroup.
+                LobbyGroupFlow(socket, receiveGroupCode, true);
+
+                // Con tu servidor actual, al salir del lobby el socket se cerrará.
+                return false;
+            }
+            else
+            {
+                Console.WriteLine("No ha sido posible crear el grupo.");
+                Console.WriteLine("Esto es normal si el servidor aún no tiene implementado CreateGroup.");
+                Console.ReadKey();
+                Console.Clear();
+
+                return true;
+            }
+        }
+
+        public static bool JoinGroupFlow(Socket socket)
+        {
+            Console.WriteLine("\nIntroduce el código del grupo:");
+            Console.Write(">");
+
+            string? groupCode = Console.ReadLine()?.Trim();
+
+            if (string.IsNullOrWhiteSpace(groupCode))
+            {
+                Console.WriteLine("El código no puede estar vacío.");
+                Console.ReadKey();
+                return true;
+            }
+
+            SocketTools.sendInt(socket, (int)MainGroup.JoinGroup);
+            SocketTools.sendString(groupCode, socket);
+
+            bool success = SocketTools.receiveBool(socket);
+
+            if (success)
+            {
+                Console.WriteLine("Te has unido correctamente al grupo.");
+                Console.ReadKey();
+
+                // A partir de aquí el servidor entra en LobbyGroup(...)
+                LobbyGroupFlow(socket, groupCode, false);
+
+                // El servidor cerrará la conexión al salir del lobby.
+                return false;
+            }
+            else
+            {
+                Console.WriteLine("El grupo no está activo o el código no es válido.");
+                Console.ReadKey();
+                return true;
+            }
+        }
+
+        // Este método ya habla con el lobby real del servidor
+        public static void LobbyGroupFlow(Socket socket, string groupCode, bool userOwner)
+        {
+            bool inLobby = true;
+
+            while (inLobby)
+            {
+                Console.Clear();
+                Console.WriteLine($"👥 Grupo: {groupCode}");
+                Console.WriteLine("--------------------------------");
+                Console.WriteLine("      [ . . . SALA DE ESPERA . . . ]      ");
+                Console.WriteLine("--------------------------------");
+
+                if (userOwner)
+                {
+                    Console.WriteLine("Eres el creador del grupo.");
+                    Console.WriteLine("Comparte el código con los demás miembros.");
+                }
+                else
+                {
+                    Console.WriteLine("Has entrado al grupo correctamente.");
+                }
+
+                // El servidor, en cada vuelta del while del lobby,
+                // primero envía el número de miembros
+                int memberCount = SocketTools.receiveInt(socket);
+
+                Console.WriteLine($"\nMiembros actuales en sala: {memberCount}");
+                Console.WriteLine("\nOpciones:");
+                Console.WriteLine("1. Refrescar");
+                Console.WriteLine("2. Salir del grupo");
+                Console.WriteLine("3. Start");
+                Console.Write(">");
+
+                string? input = Console.ReadLine()?.Trim();
+
+                if (!int.TryParse(input, out int option))
+                {
+                    Console.WriteLine("Opción no válida.");
+                    Thread.Sleep(700);
+
+                    // Enviamos refresh para no romper el protocolo
+                    SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
+                    continue;
+                }
+
+                switch (option)
+                {
+                    case (int)LobbyOption.Refresh:
+                        // El servidor volverá a iterar y reenviará el estado
+                        SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
+                        break;
+
+                    case (int)LobbyOption.Exit:
+                        SocketTools.sendInt(socket, (int)LobbyOption.Exit);
+                        Console.WriteLine("\nHas salido del grupo.");
+                        Console.ReadKey();
+                        inLobby = false;
+                        break;
+                    case (int)LobbyOption.Start:
+                        SocketTools.sendInt(socket,(int)LobbyOption.Start);
+                        Console.WriteLine("Comenzando los calculos...");
+                        Console.ReadKey();
+                        
+                        bool responseStart = SocketTools.receiveBool(socket);
+
+                        if (responseStart) 
+                        {
+                            // Mando la localizacion
+
+                            // Recibo respuesta
+                            Console.Clear();
+                            Console.WriteLine("PUNTO OPTIMO");
+                            Console.WriteLine("--------------------------------");
+                            Console.WriteLine("> El punto optimo es : ");
+                            Console.WriteLine("> Tardas X tiempo.");
+                            Console.WriteLine("> Necesitas XXXX");
+
+                        }
+
+                        // Aqui se avanzaria al mapa/calculo // Start => Pantalla limpia y solo el punto optimo y fuera
+                        break;
+
+                    default:
+                        Console.WriteLine("Opción no válida.");
+                        Thread.Sleep(700);
+
+                        // Para mantener sincronía con el servidor,
+                        // mandamos un refresh
+                        SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
+                        break;
+                }
+            }
+        }
+
+        public static Socket CreateSocketConnection(string ip, int port)
         {
             IPAddress address = IPAddress.Parse(ip);
             IPEndPoint endpoint = new IPEndPoint(address, port);
@@ -378,22 +533,19 @@ namespace Client
             return socket;
         }
 
-        // --- MÉTODOS DE CONTENIDO ---
-
         public static void PrintHomeContent()
         {
-            Console.WriteLine("🏠 INICIO - Actividad Reciente");
+            Console.WriteLine("🏠 INICIO - Actividad reciente");
             Console.WriteLine("--------------------------------");
             Console.WriteLine("> Noticia: ¡Nueva actualización de mapas disponible!");
-            Console.WriteLine("> Tip: Crea un grupo rápido usando el botón 'Group'.");
+            Console.WriteLine("> Tip: crea un grupo rápido usando la pestaña Group.");
             Console.WriteLine("> Historial: Quedada en 'Bar Central' (hace 2 días).");
         }
 
         public static void PrintGroupContent()
         {
-            Console.WriteLine("👥 GRUPOS - Gestión de Reuniones");
+            Console.WriteLine("👥 GRUPOS - Gestión de reuniones");
             Console.WriteLine("--------------------------------");
-            // Aquí es donde meterías tu lógica de sockets para crear/unirse
             Console.WriteLine("1. [C]rear nuevo grupo");
             Console.WriteLine("2. [U]nirse con código");
             Console.WriteLine("\nEstado: Sin grupo activo.");
@@ -401,31 +553,19 @@ namespace Client
 
         public static void PrintMapContent()
         {
-            Console.WriteLine("📍 MAPA - Punto de Encuentro");
+            Console.WriteLine("📍 MAPA - Punto de encuentro");
             Console.WriteLine("--------------------------------");
-            // El mapa "en espera" hasta que haya cálculos
             Console.WriteLine("      [ . . . MAPA CARGANDO . . . ]      ");
             Console.WriteLine("\n(Aquí aparecerá la ubicación final calculada)");
         }
 
         public static void PrintProfileContent()
         {
-            Console.WriteLine("👤 PERFIL - Mi Cuenta");
+            Console.WriteLine("👤 PERFIL - Mi cuenta");
             Console.WriteLine("--------------------------------");
             Console.WriteLine("Usuario: Invitado_123");
             Console.WriteLine("Estado: Online");
-            Console.WriteLine("\n[S] Settings (Ajustes) --> Pulsa 'S' para configurar");
-        }
-        public static void JoinGroup(bool userOwner, string nameGroup,)  // si es true, tendra opciones especiales
-        {
-            // Nombre del grupo?
-
-            Console.WriteLine($"👤 {nameGroup}");
-            Console.WriteLine("--------------------------------");
-            Console.WriteLine("      [ . . . SALA DE ESPERA . . . ]      ");
-            Console.WriteLine("--------------------------------");
-
-
+            Console.WriteLine("\n[S] Settings (Ajustes)");
         }
     }
 }

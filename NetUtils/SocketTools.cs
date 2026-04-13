@@ -1,4 +1,5 @@
-﻿using System.Net.Sockets;
+﻿using System.Net;
+using System.Net.Sockets;
 using System.Text;
 
 namespace NetUtils
@@ -73,6 +74,16 @@ namespace NetUtils
         public static void sendDate(DateOnly date, Socket socket)
         {
             sendString(date.ToString("yyyy-MM-dd"), socket);
+        }
+        public static Socket CreateSocketConnection(string ip, int port)
+        {
+            IPAddress address = IPAddress.Parse(ip);
+            IPEndPoint endpoint = new IPEndPoint(address, port);
+
+            Socket socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            socket.Connect(endpoint);
+
+            return socket;
         }
     }
 }

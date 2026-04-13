@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+﻿using System.Collections.Concurrent;
 
 namespace Server.Group.GroupSessions
 {
@@ -8,9 +8,9 @@ namespace Server.Group.GroupSessions
         public string GroupCode { get; }
         public int OwnerUserId { get; }
 
-        private readonly Dictionary<int, MemberSubmission> _members = new();
+        private readonly ConcurrentDictionary<int, MemberSubmission> _members = new();
 
-        public IReadOnlyCollection<MemberSubmission> Members => _members.Values;
+        public int MemberCount => _members.Count;
 
         public GroupSession(int groupId, string groupCode, int ownerUserId)
         {
@@ -21,16 +21,18 @@ namespace Server.Group.GroupSessions
 
         public void AddMember(int userId, string username)
         {
-            if (!_members.ContainsKey(userId))
-            {
-                _members[userId] = new MemberSubmission(userId, username);
-            }
+            _members.TryAdd(userId, new MemberSubmission(userId, username));
         }
 
         public MemberSubmission? GetMember(int userId)
         {
             _members.TryGetValue(userId, out var member);
             return member;
+        }
+
+        public bool RemoveMember(int userId)
+        {
+            return _members.TryRemove(userId, out _);
         }
     }
 }

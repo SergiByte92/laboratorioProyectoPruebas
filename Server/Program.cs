@@ -2,7 +2,7 @@
 using Server.API;
 using Server.Data;
 using Server.Group;
-using Server.Group.GroupCode;
+using Server.Group.GroupSessions;
 using System.Net;
 using System.Net.Sockets;
 using static Server.Data.AppDbContext;
@@ -20,14 +20,47 @@ namespace Server
         public enum MainGroup
         {
             CreateGroup = 1,
-            JoinGroup = 2,
+            JoinGroup = 2
         }
 
-        public static string connectionString = "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
+        public static string connectionString =
+            "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
+
+        // Grupos activos en memoria
+        private static readonly GroupSessionManager groupSessionManager = new();
+
+        static void Main(string[] args)
+        {
+            try
+            {
+                using AppDbContext context = new AppDbContext(connectionString);
+                context.Database.EnsureCreated();
+
+                Console.WriteLine("Base de datos creada/verificada correctamente.");
+                Thread.Sleep(1000);
+                Console.Clear();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("No ha sido posible crear/verificar la base de datos.");
+                Console.WriteLine(ex);
+                Thread.Sleep(1500);
+                Console.Clear();
+            }
+
+            Thread threadServerAPI = new Thread(ServerAPI);
+            threadServerAPI.Start();
+
+            Thread threadServerIdentity = new Thread(ServerIdentity);
+            threadServerIdentity.Start();
+
+            Console.WriteLine("Servidores corriendo. Pulsa ENTER para detenerlos.");
+            Console.ReadLine();
+        }
 
         static void ServerAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.111.52");
+            IPAddress address = IPAddress.Parse("192.168.111.48");
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -42,9 +75,11 @@ namespace Server
             }
         }
 
-        static void ServiceAPI(object o)
+        static void ServiceAPI(object? o)
         {
-            Socket socket = (Socket)o;
+            if (o is not Socket socket)
+                return;
+
             // Pendiente
         }
 
@@ -52,7 +87,7 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.111.52");
+                IPAddress address = IPAddress.Parse("192.168.111.48");
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
                 Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -77,14 +112,15 @@ namespace Server
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error fatal en serverIdentity:");
+                Console.WriteLine("Error fatal en ServerIdentity:");
                 Console.WriteLine(ex);
             }
         }
 
-        static async Task ServiceIdentity(object o)
+        static async Task ServiceIdentity(object? o)
         {
-            Socket socket = (Socket)o;
+            if (o is not Socket socket)
+                return;
 
             try
             {
@@ -92,7 +128,8 @@ namespace Server
 
                 if (option == (int)MainUser.Login)
                 {
-                    Console.WriteLine("Cliente logeandose...");
+                    Console.WriteLine("Cliente logeándose...");
+
                     using AppDbContext context = new AppDbContext(connectionString);
 
                     User? currentUser = CheckLogin(socket, context);
@@ -109,14 +146,60 @@ namespace Server
                             case (int)MainGroup.CreateGroup:
                                 {
                                     var createGroupService = new CreateGroupService(context);
-                                    await createGroupService.ExecuteAsync(socket, currentUser); // de aqui si ha sido exitoso, seria irse a la pantalla de Join
-                                    // Si es el que lo ha creado saldra unas cosas o otras
-                                    break;
+
+                                    // IMPORTANTE:
+                                    // ExecuteAsync debe devolver:
+                                    // (bool Success, int GroupId, string GroupCode)
+                                    var result = await createGroupService.ExecuteAsync(socket, currentUser);
+
+                                    if (!result.Success)
+                                    {
+                                        Console.WriteLine("[WARN] No se pudo crear el grupo.");
+                                        break;
+                                    }
+
+                                    // Creamos sesión activa en memoria
+                                    var session = new GroupSession(
+                                        result.GroupId,
+                                        result.GroupCode,
+                                        currentUser.id
+                                    );
+
+                                    // El creador entra automáticamente al grupo
+                                    session.AddMember(currentUser.id, currentUser.username);
+
+                                    // Guardamos la sesión en memoria
+                                    groupSessionManager.Add(session);
+
+                                    Console.WriteLine($"[INFO] Grupo creado y sesión activa: {result.GroupCode}");
+
+                                    // Entramos al lobby directamente
+                                    LobbyGroup(socket, result.GroupCode, currentUser); // Siguiente paso son los calculos
+
+                                    // Al salir del lobby, terminamos este flujo
+                                    return;
                                 }
 
                             case (int)MainGroup.JoinGroup:
                                 {
-                                    SocketTools.sendBool(socket, false); // pantalla de espera
+                                    string groupCode = SocketTools.receiveString(socket);
+
+                                    bool success = groupSessionManager.TryJoinGroup(
+                                        groupCode,
+                                        currentUser.id,
+                                        currentUser.username
+                                    );
+
+                                    SocketTools.sendBool(socket, success);
+
+                                    if (success)
+                                    {
+                                        Console.WriteLine($"[INFO] Usuario {currentUser.username} unido al grupo {groupCode}");
+                                        LobbyGroup(socket, groupCode, currentUser);
+                                        return;
+                                    }
+
+                                    Console.WriteLine($"[WARN] Join fallido para grupo {groupCode}");
                                     break;
                                 }
 
@@ -130,9 +213,11 @@ namespace Server
                 }
                 else if (option == (int)MainUser.Register)
                 {
-                    Console.WriteLine("Cliente registrandose...");
+                    Console.WriteLine("Cliente registrándose...");
+
                     using AppDbContext context = new AppDbContext(connectionString);
                     Register(socket, context);
+
                     Console.WriteLine("Cliente registrado correctamente");
                 }
                 else
@@ -143,41 +228,22 @@ namespace Server
             }
             catch (Exception ex)
             {
+                Console.WriteLine("Error en ServiceIdentity:");
                 Console.WriteLine(ex);
-                try { SocketTools.sendBool(socket, false); } catch { }
+
+                try
+                {
+                    SocketTools.sendBool(socket, false);
+                }
+                catch
+                {
+                    // Ignorado a propósito
+                }
             }
             finally
             {
                 socket.Close();
             }
-        }
-
-        static void Main(string[] args)
-        {
-            try
-            {
-                using AppDbContext context = new AppDbContext(connectionString);
-                context.Database.EnsureCreated();
-                Console.WriteLine("Creadas las bases de datos");
-                Thread.Sleep(1000);
-                Console.Clear();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("No ha sido posible crear las tablas");
-                Console.WriteLine(ex);
-                Thread.Sleep(1000);
-                Console.Clear();
-            }
-
-            Thread threadServerAPI = new Thread(ServerAPI);
-            threadServerAPI.Start();
-
-            Thread threadServerIdentity = new Thread(ServerIdentity);
-            threadServerIdentity.Start();
-
-            Console.WriteLine("Servidores corriendo. Pulsa ENTER para detenerlos.");
-            Console.ReadLine();
         }
 
         public static User? CheckLogin(Socket socket, AppDbContext context)
@@ -213,7 +279,7 @@ namespace Server
             if (exists)
                 throw new InvalidOperationException("El usuario o email ya existe");
 
-            AppDbContext.User userAdd = new AppDbContext.User
+            User userAdd = new User
             {
                 username = user,
                 email = email,
@@ -227,5 +293,70 @@ namespace Server
 
             Console.WriteLine($"Usuario {user} registrado correctamente en base de datos");
         }
+
+        static void LobbyGroup(Socket socket, string groupCode, User user)
+        {
+            while (true)
+            {
+                var session = groupSessionManager.Get(groupCode);
+
+                // Si la sesión ya no existe, avisamos y salimos
+                if (session == null)
+                {
+                    SocketTools.sendInt(socket, -1);
+                    return;
+                }
+
+                // Enviamos cuántos miembros hay ahora mismo
+                SocketTools.sendInt(socket, session.MemberCount);
+
+                // Esperamos opción del cliente:
+                // 1 = refresh
+                // 2 = salir
+                int option = SocketTools.receiveInt(socket);
+
+                switch (option)
+                {
+                    case 1:
+                        // refresh -> no hacemos nada, el while vuelve a iterar
+                        break;
+
+                    case 2:
+                        session.RemoveMember(user.id);
+
+                        Console.WriteLine($"[INFO] Usuario {user.username} salió del grupo {groupCode}");
+
+                        // Si quieres, aquí podrías eliminar el grupo si queda vacío:
+                        // if (session.MemberCount == 0)
+                        // {
+                        //     groupSessionManager.Remove(groupCode);
+                        // }
+
+                        return;
+                    case 3: // start ( solo owner )
+
+                        if (user.id != session.OwnerUserId)
+                        {
+                            SocketTools.sendBool(socket, false);
+                            break;
+                        }
+
+                        session.Start(); // 👈 AQUÍ
+
+                        Console.WriteLine($"[INFO] Grupo {groupCode} iniciado por owner");
+
+                        SocketTools.sendBool(socket, true);
+
+                        return; // salimos del lobby
+
+                        
+
+                    default:
+                        // Opción no válida: seguimos en el lobby
+                        break;
+                }
+            }
+        }
+
     }
 }
