@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 
 namespace Server.Group.GroupSessions
 {
+    /// <summary>
+    /// Representa a un usuario que pertenece a una sesión de grupo activa.
+    /// </summary>
     public sealed class GroupMember
     {
         public int UserId { get; }

@@ -7,6 +7,11 @@ using static Server.Data.AppDbContext;
 
 namespace Server.Group
 {
+    /// <summary>
+    /// Orquesta la creación de un grupo a partir de los datos recibidos del cliente,
+    /// validando la entrada, generando un código único y persistiendo la información
+    /// necesaria en la base de datos.
+    /// </summary>
     internal class CreateGroupService
     {
         private readonly AppDbContext _context;

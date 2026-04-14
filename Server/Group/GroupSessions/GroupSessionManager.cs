@@ -4,6 +4,10 @@ using Server.UserRouting;
 
 namespace Server.Group.GroupSessions // Si peta, el servidor debería al encenderse cargar grupos activos en memoria
 {
+    /// <summary>
+    /// Gestiona las sesiones de grupo activas en memoria, permitiendo crear, recuperar,
+    /// añadir y eliminar grupos que están en uso durante la ejecución del servidor.
+    /// </summary>
     public class GroupSessionManager // Supongo que tocara usar locks, pendiente de implementar
     {
 

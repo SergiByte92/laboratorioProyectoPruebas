@@ -507,6 +507,23 @@ namespace Client
 
                         Console.WriteLine("\nGrupo iniciado correctamente.");
                         Console.WriteLine("Comenzando recogida de ubicación...");
+                        
+                        Console.WriteLine("Latitud?");
+                        if (!double.TryParse(Console.ReadLine(), out double latitud))
+                        {
+                            Console.WriteLine("Latitud no válida.");
+                            return;
+                        }
+                        Console.WriteLine("Latitud?");
+                        if (!double.TryParse(Console.ReadLine(), out double longitud))
+                        {
+                            Console.WriteLine("Longitud no válida.");
+                            return;
+                        }
+
+                        SocketTools.sendDouble(socket, latitud);
+                        SocketTools.sendDouble(socket, longitud);
+
                         Console.ReadKey();
 
                         // Aquí iría el siguiente paso:

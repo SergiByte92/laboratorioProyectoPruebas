@@ -1,5 +1,8 @@
 ﻿namespace Server.UserRouting
 {
+    /// <summary>
+    /// Explica que representa el resultado calculado para un usuario.
+    /// </summary>
     internal class UserRouteResult
     {
         public string UserId { get; set; }

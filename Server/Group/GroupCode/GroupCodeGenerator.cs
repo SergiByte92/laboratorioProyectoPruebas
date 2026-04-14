@@ -9,6 +9,9 @@ using System.Threading.Tasks;
 
 namespace Server.Group.GroupCode
 {
+    /// <summary>
+    /// Genera códigos únicos de grupo evitando colisiones con los grupos ya existentes.
+    /// </summary>
     public static class GroupCodeGenerator
     {
         // Eliminamos letras y números confusos (0, O, 1, I, L)

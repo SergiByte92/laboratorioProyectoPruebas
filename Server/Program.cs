@@ -342,15 +342,13 @@ namespace Server
                             break;
                         }
 
-                        session.Start(); // 👈 AQUÍ
+                        session.Start(); // 👈 AQUÍ 
 
                         Console.WriteLine($"[INFO] Grupo {groupCode} iniciado por owner");
 
-                        SocketTools.sendBool(socket, true);
+                        SocketTools.sendBool(socket, true); //?
 
-                        return; // salimos del lobby
-
-                        
+                        return; // salimos del lobby            
 
                     default:
                         // Opción no válida: seguimos en el lobby

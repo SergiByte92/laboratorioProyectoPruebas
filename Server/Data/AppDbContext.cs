@@ -4,6 +4,10 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Server.Data
 {
+    /// <summary>
+    /// Contexto de Entity Framework Core encargado de mapear y gestionar las entidades
+    /// persistidas de la aplicación.
+    /// </summary>
     public class AppDbContext : DbContext
     {
         public DbSet<User> Users { get; set; }

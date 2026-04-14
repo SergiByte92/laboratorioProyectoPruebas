@@ -6,6 +6,10 @@ using System.Threading.Tasks;
 
 namespace Server.Algorithm
 {
+    /// <summary>
+    /// Contiene operaciones geométricas reutilizables para trabajar con coordenadas
+    /// y apoyar el cálculo del punto óptimo.
+    /// </summary>
     internal class GeometryUtils
     {
         public struct GeographicLocation

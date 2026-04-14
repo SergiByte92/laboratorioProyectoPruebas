@@ -3,11 +3,16 @@ using Server.UserRouting;
 
 namespace Server.Group.GroupSessions
 {
+    /// <summary>
+    /// Mantiene el estado activo de un grupo en memoria, incluyendo miembros,
+    /// ubicaciones recibidas y control del ciclo de vida de la sesión.
+    /// </summary>
     public sealed class GroupSession
     {
         public int GroupId { get; }
         public string GroupCode { get; }
         public int OwnerUserId { get; }
+        public bool HasStarted { get; private set; }
 
         private readonly ConcurrentDictionary<int, GroupMember> _members = new();
         private readonly ConcurrentDictionary<int, UserLocation> _locations = new();
@@ -20,10 +25,14 @@ namespace Server.Group.GroupSessions
             GroupId = groupId;
             GroupCode = groupCode;
             OwnerUserId = ownerUserId;
+            HasStarted = false;
         }
 
         public void AddMember(int userId, string username)
         {
+            if (HasStarted)
+                return;
+
             _members.TryAdd(userId, new GroupMember(userId, username));
         }
 
@@ -35,12 +44,24 @@ namespace Server.Group.GroupSessions
 
         public bool RemoveMember(int userId)
         {
-            _locations.TryRemove(userId, out _); // si sale, también quitamos su ubicación
+            _locations.TryRemove(userId, out _);
             return _members.TryRemove(userId, out _);
+        }
+
+        public bool Start() // Si ya esta iniciado, no se puede iniciar más veces
+        {
+            if (HasStarted)
+                return false;
+
+            HasStarted = true;
+            return true;
         }
 
         public void AddOrUpdateLocation(UserLocation location)
         {
+            if (!HasStarted)
+                return;
+
             _locations[location.UserId] = location;
         }
 

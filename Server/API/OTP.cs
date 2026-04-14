@@ -8,6 +8,10 @@ using System.Threading.Tasks;
 
 namespace Server.API
 {
+    /// <summary>
+    /// Proporciona acceso a los servicios de OpenTripPlanner necesarios para obtener
+    /// información de rutas y desplazamientos entre ubicaciones.
+    /// </summary>
     public sealed class OTP
     {
         // --- 1. CLASES DE DATOS INTERNAS ---

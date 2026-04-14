@@ -2,9 +2,14 @@
 using System.Net.Sockets;
 using System.Text;
 
+
 namespace NetUtils
 {
-    public class SocketTools
+    /// <summary>
+    /// Proporciona utilidades de bajo nivel para enviar y recibir tipos de datos
+    /// a través de sockets, centralizando la serialización básica del protocolo.
+    /// </summary>
+    public class SocketTools // networkstream si son 5 paquetes y se pierde uno por el camino que? eso asegura que manda todos los paquetes
     {
         public static byte[] ReceiveExact(Socket socket, int size)
         {
@@ -66,10 +71,16 @@ namespace NetUtils
             // 4. Enviamos el contenido real
             socket.Send(bytes);
         }
-        public static void sendDouble(double coordenadas, Socket socket)
+        public static void sendDouble(Socket socket, double coordenadas)
         {
             byte[] bytes = BitConverter.GetBytes(coordenadas);
             socket.Send(bytes);
+        }
+        public static double receiveDouble(Socket socket)
+        {
+            byte[] bytes = new byte[sizeof(double)];
+            socket.Receive(bytes);
+            return BitConverter.ToDouble(bytes);
         }
         public static void sendDate(DateOnly date, Socket socket)
         {
