@@ -1,8 +1,10 @@
 ﻿using NetUtils;
+using Server.Algorithm;
 using Server.API;
 using Server.Data;
 using Server.Group;
 using Server.Group.GroupSessions;
+using Server.UserRouting;
 using System.Net;
 using System.Net.Sockets;
 using static Server.Data.AppDbContext;
@@ -326,7 +328,7 @@ namespace Server
 
                         Console.WriteLine($"[INFO] Usuario {user.username} salió del grupo {groupCode}");
 
-                        // Si quieres, aquí podrías eliminar el grupo si queda vacío:
+                        // Si quieres, aquí podrías eliminar el grupo si queda vacío: => cuando quedaria vacio?
                         // if (session.MemberCount == 0)
                         // {
                         //     groupSessionManager.Remove(groupCode);
@@ -334,19 +336,26 @@ namespace Server
 
                         return;
                     case 3: // start ( solo owner )
-                        
 
-                        if (user.id != session.OwnerUserId)
+                        var receiveLocationService = new ReceiveLocationService();
+                        bool allReceived = receiveLocationService.Execute(socket, session, user);
+
+                        if (allReceived)
                         {
-                            SocketTools.sendBool(socket, false);
-                            break;
+                            Console.WriteLine("[INFO] Ya están todas las ubicaciones. Listo para procesar.");
+
+                            var locations = session.GetAllLocations();
+
+                            var geometricLocations = locations
+                                .Select(l => new GeometryUtils.GeographicLocation(l.Latitude, l.Longitude))
+                                .ToList();
+
+                            var centroid = GeometryUtils.CalculateCentroid(geometricLocations);
+
+                            Console.WriteLine($"[INFO] Punto geométrico calculado: {centroid.Latitude}, {centroid.Longitude}");
                         }
 
-                        session.Start(); // 👈 AQUÍ 
-
-                        Console.WriteLine($"[INFO] Grupo {groupCode} iniciado por owner");
-
-                        SocketTools.sendBool(socket, true); //?
+                        
 
                         return; // salimos del lobby            
 

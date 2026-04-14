@@ -1,42 +1,40 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Server.Algorithm
+﻿namespace Server.Algorithm
 {
     /// <summary>
     /// Contiene operaciones geométricas reutilizables para trabajar con coordenadas
     /// y apoyar el cálculo del punto óptimo.
     /// </summary>
-    internal class GeometryUtils
+    internal static class GeometryUtils
     {
-        public struct GeographicLocation
+        public readonly struct GeographicLocation
         {
-            public double Latitude { get; set; }
-            public double Longitude { get; set; }
+            public double Latitude { get; }
+            public double Longitude { get; }
 
-            // Un constructor opcional para crear puntos rápido
-            public GeographicLocation(double lat, double lon)
+            public GeographicLocation(double latitude, double longitude)
             {
-                Latitude = lat;
-                Longitude = lon;
+                Latitude = latitude;
+                Longitude = longitude;
             }
         }
-        public static GeographicLocation CalculateCentroid(List<GeographicLocation> locations)
+
+        public static GeographicLocation CalculateCentroid(IEnumerable<GeographicLocation> locations)
         {
+            var points = locations.ToList();
+
+            if (points.Count == 0)
+                throw new InvalidOperationException("No se puede calcular el centroide sin ubicaciones.");
+
             double sumLat = 0;
             double sumLon = 0;
-            int n = locations.Count;
 
-            foreach (var loc in locations)
+            foreach (var point in points)
             {
-                sumLat += loc.Latitude;
-                sumLon += loc.Longitude;
+                sumLat += point.Latitude;
+                sumLon += point.Longitude;
             }
 
-            return new GeographicLocation(sumLat / n, sumLon / n);
+            return new GeographicLocation(sumLat / points.Count, sumLon / points.Count);
         }
     }
 }
