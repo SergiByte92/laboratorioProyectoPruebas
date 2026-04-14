@@ -296,7 +296,7 @@ namespace Server
             Console.WriteLine($"Usuario {user} registrado correctamente en base de datos");
         }
 
-        static void LobbyGroup(Socket socket, string groupCode, User user)
+        static async void LobbyGroup(Socket socket, string groupCode, User user)
         {
             while (true)
             {
@@ -335,27 +335,63 @@ namespace Server
                         // }
 
                         return;
-                    case 3: // start ( solo owner )
-
-                        var receiveLocationService = new ReceiveLocationService();
-                        bool allReceived = receiveLocationService.Execute(socket, session, user);
-
-                        if (allReceived)
+                    case 3: // start (solo owner)
                         {
-                            Console.WriteLine("[INFO] Ya están todas las ubicaciones. Listo para procesar.");
+                            if (user.id != session.OwnerUserId)
+                            {
+                                SocketTools.sendBool(socket, false);
+                                break;
+                            }
 
-                            var locations = session.GetAllLocations();
+                            bool started = session.Start();
 
-                            var geometricLocations = locations
-                                .Select(l => new GeometryUtils.GeographicLocation(l.Latitude, l.Longitude))
-                                .ToList();
+                            SocketTools.sendBool(socket, started);
 
-                            var centroid = GeometryUtils.CalculateCentroid(geometricLocations);
+                            if (!started)
+                            {
+                                Console.WriteLine($"[WARN] El grupo {groupCode} ya estaba iniciado.");
+                                break;
+                            }
 
-                            Console.WriteLine($"[INFO] Punto geométrico calculado: {centroid.Latitude}, {centroid.Longitude}");
+                            Console.WriteLine($"[INFO] Grupo {groupCode} iniciado por owner");
+
+                            ReceiveLocationService receiveLocationService = new ReceiveLocationService();
+                            bool allReceived = receiveLocationService.Execute(socket, session, user);
+
+                            if (allReceived)
+                            {
+                                Console.WriteLine("[INFO] Ya están todas las ubicaciones. Listo para procesar.");
+
+                                IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
+
+                                List<GeometryUtils.GeographicLocation> points = locations
+                                    .Select(location => new GeometryUtils.GeographicLocation(location.Latitude, location.Longitude))
+                                    .ToList();
+
+                                GeometryUtils.GeographicLocation centroid = GeometryUtils.CalculateCentroid(points);
+
+                                Console.WriteLine($"[INFO] Punto geométrico calculado: {centroid.Latitude}, {centroid.Longitude}");
+
+                                using HttpClient httpClient = new HttpClient();
+                                OTP otp = new OTP(httpClient);
+
+                                OTP.Coordenada destination = new OTP.Coordenada(centroid.Latitude, centroid.Longitude);
+
+                                foreach (UserLocation location in locations)
+                                {
+                                    OTP.Coordenada origin = new OTP.Coordenada(location.Latitude, location.Longitude);
+
+                                    string jsonResponse = await otp.ConsultarAsync(origin, destination, "foot");
+                                    int duration = otp.ExtraerDuracion(jsonResponse);
+
+                                    Console.WriteLine($"[INFO] Usuario {location.UserId} tarda {duration} segundos al punto geométrico.");
+                                }
+                            }
+
+                            break;
                         }
 
-                        
+
 
                         return; // salimos del lobby            
 
