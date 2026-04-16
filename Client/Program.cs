@@ -1,7 +1,8 @@
-﻿using System.Net;
-using System.Net.Sockets;
+﻿using Client.MainMenu;
 using NetUtils;
-using Client.MainMenu;
+using System.Globalization;
+using System.Net;
+using System.Net.Sockets;
 
 namespace Client
 {
@@ -38,12 +39,13 @@ namespace Client
         {
             Refresh = 1,
             Exit = 2,
-            Start = 3
+            Start = 3,
+            SendLocation = 4
         }
 
         static void Main(string[] args)
         {
-            string ip = "192.168.111.48";
+            string ip = "192.168.1.37";
             int port = 1001;
             bool appRunning = true;
 
@@ -431,6 +433,7 @@ namespace Client
         public static void LobbyGroupFlow(Socket socket, string groupCode, bool userOwner)
         {
             bool inLobby = true;
+            bool locationSent = false;
 
             while (inLobby)
             {
@@ -450,18 +453,70 @@ namespace Client
                     Console.WriteLine("Has entrado al grupo correctamente.");
                 }
 
-                // El servidor, en cada vuelta del while del lobby,
-                // primero envía el número de miembros
                 int memberCount = SocketTools.receiveInt(socket);
+                bool hasStarted = SocketTools.receiveBool(socket);
 
                 Console.WriteLine($"\nMiembros actuales en sala: {memberCount}");
+                Console.WriteLine($"Estado del grupo: {(hasStarted ? "INICIADO" : "ESPERANDO START")}");
+
+                if (hasStarted && !locationSent)
+                {
+                    Console.WriteLine("\nEl grupo ya ha sido iniciado. Introduce tu ubicación.");
+
+                    Console.WriteLine("Latitud?");
+                    string? inputLatitude = Console.ReadLine()?.Trim().Replace(',', '.');
+
+                    if (!double.TryParse(inputLatitude, NumberStyles.Float, CultureInfo.InvariantCulture, out double latitud))
+                    {
+                        Console.WriteLine("Latitud no válida.");
+                        Console.ReadKey();
+                        continue;
+                    }
+
+                    Console.WriteLine("Longitud?");
+                    string? inputLongitude = Console.ReadLine()?.Trim().Replace(',', '.');
+
+                    if (!double.TryParse(inputLongitude, NumberStyles.Float, CultureInfo.InvariantCulture, out double longitud))
+                    {
+                        Console.WriteLine("Longitud no válida.");
+                        Console.ReadKey();
+                        continue;
+                    }
+
+                    SocketTools.sendInt(socket, (int)LobbyOption.SendLocation);
+                    SocketTools.sendDouble(socket, latitud);
+                    SocketTools.sendDouble(socket, longitud);
+
+                    double destinationLatitude = SocketTools.receiveDouble(socket);
+                    double destinationLongitude = SocketTools.receiveDouble(socket);
+                    int durationSeconds = SocketTools.receiveInt(socket);
+
+                    if (durationSeconds == -1)
+                    {
+                        Console.WriteLine("Ubicación enviada correctamente.");
+                        Console.WriteLine("Esperando a que el resto del grupo envíe la suya...");
+                        Console.ReadKey();
+                    }
+                    else
+                    {
+                        Console.WriteLine($"\nPunto de encuentro: {destinationLatitude}, {destinationLongitude}");
+                        Console.WriteLine($"Tiempo estimado: {durationSeconds} segundos");
+                        Console.ReadKey();
+                    }
+
+                    locationSent = true;
+                    continue;
+                }
+
                 Console.WriteLine("\nOpciones:");
                 Console.WriteLine("1. Refrescar");
                 Console.WriteLine("2. Salir del grupo");
-                if (userOwner)
+
+                if (userOwner && !hasStarted)
                 {
                     Console.WriteLine("3. Start");
                 }
+
                 Console.Write(">");
 
                 string? input = Console.ReadLine()?.Trim();
@@ -471,7 +526,6 @@ namespace Client
                     Console.WriteLine("Opción no válida.");
                     Thread.Sleep(700);
 
-                    // Enviamos refresh para no romper el protocolo
                     SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
                     continue;
                 }
@@ -479,7 +533,6 @@ namespace Client
                 switch (option)
                 {
                     case (int)LobbyOption.Refresh:
-                        // El servidor volverá a iterar y reenviará el estado
                         SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
                         break;
 
@@ -489,55 +542,33 @@ namespace Client
                         Console.ReadKey();
                         inLobby = false;
                         break;
+
                     case (int)LobbyOption.Start:
-                        // El cliente solo avisa al servidor de que quiere iniciar el grupo.
+                        if (!userOwner)
+                        {
+                            Console.WriteLine("Solo el owner puede iniciar el grupo.");
+                            Console.ReadKey();
+                            break;
+                        }
+
                         SocketTools.sendInt(socket, (int)LobbyOption.Start);
 
-                        // El servidor decide si puede o no puede iniciar:
-                        // - false -> no eres owner o no se pudo iniciar
-                        // - true  -> grupo iniciado correctamente
                         bool responseStart = SocketTools.receiveBool(socket);
 
                         if (!responseStart)
                         {
-                            Console.WriteLine("\nNo eres el creador del grupo o no se ha podido iniciar.");
+                            Console.WriteLine("\nNo se ha podido iniciar el grupo.");
                             Console.ReadKey();
                             break;
                         }
 
                         Console.WriteLine("\nGrupo iniciado correctamente.");
-                        Console.WriteLine("Comenzando recogida de ubicación...");
-                        
-                        Console.WriteLine("Latitud?");
-                        if (!double.TryParse(Console.ReadLine(), out double latitud))
-                        {
-                            Console.WriteLine("Latitud no válida.");
-                            return;
-                        }
-                        Console.WriteLine("Latitud?");
-                        if (!double.TryParse(Console.ReadLine(), out double longitud))
-                        {
-                            Console.WriteLine("Longitud no válida.");
-                            return;
-                        }
-
-                        SocketTools.sendDouble(socket, latitud);
-                        SocketTools.sendDouble(socket, longitud);
-
                         Console.ReadKey();
-
-                        // Aquí iría el siguiente paso:
-                        // 1. pedir latitud/longitud al usuario
-                        // 2. enviarlas al servidor
-                        // 3. esperar siguiente respuesta
                         break;
 
                     default:
                         Console.WriteLine("Opción no válida.");
                         Thread.Sleep(700);
-
-                        // Para mantener sincronía con el servidor,
-                        // mandamos un refresh
                         SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
                         break;
                 }

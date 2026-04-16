@@ -25,10 +25,17 @@ namespace Server
             JoinGroup = 2
         }
 
+        public enum LobbyOption
+        {
+            Refresh = 1,
+            Exit = 2,
+            Start = 3,
+            SendLocation = 4
+        }
+
         public static string connectionString =
             "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
 
-        // Grupos activos en memoria
         private static readonly GroupSessionManager groupSessionManager = new();
 
         static void Main(string[] args)
@@ -62,7 +69,7 @@ namespace Server
 
         static void ServerAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.111.48");
+            IPAddress address = IPAddress.Parse("192.168.1.37");
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -89,7 +96,7 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.111.48");
+                IPAddress address = IPAddress.Parse("192.168.1.37");
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
                 Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -147,11 +154,7 @@ namespace Server
                         {
                             case (int)MainGroup.CreateGroup:
                                 {
-                                    var createGroupService = new CreateGroupService(context);
-
-                                    // IMPORTANTE:
-                                    // ExecuteAsync debe devolver:
-                                    // (bool Success, int GroupId, string GroupCode)
+                                    CreateGroupService createGroupService = new CreateGroupService(context);
                                     var result = await createGroupService.ExecuteAsync(socket, currentUser);
 
                                     if (!result.Success)
@@ -160,25 +163,18 @@ namespace Server
                                         break;
                                     }
 
-                                    // Creamos sesión activa en memoria
-                                    var session = new GroupSession(
+                                    GroupSession session = new GroupSession(
                                         result.GroupId,
                                         result.GroupCode,
                                         currentUser.id
                                     );
 
-                                    // El creador entra automáticamente al grupo
                                     session.AddMember(currentUser.id, currentUser.username);
-
-                                    // Guardamos la sesión en memoria
                                     groupSessionManager.Add(session);
 
                                     Console.WriteLine($"[INFO] Grupo creado y sesión activa: {result.GroupCode}");
 
-                                    // Entramos al lobby directamente
-                                    LobbyGroup(socket, result.GroupCode, currentUser); // Siguiente paso son los calculos
-
-                                    // Al salir del lobby, terminamos este flujo
+                                    await LobbyGroup(socket, result.GroupCode, currentUser);
                                     return;
                                 }
 
@@ -197,7 +193,7 @@ namespace Server
                                     if (success)
                                     {
                                         Console.WriteLine($"[INFO] Usuario {currentUser.username} unido al grupo {groupCode}");
-                                        LobbyGroup(socket, groupCode, currentUser);
+                                        await LobbyGroup(socket, groupCode, currentUser);
                                         return;
                                     }
 
@@ -239,7 +235,6 @@ namespace Server
                 }
                 catch
                 {
-                    // Ignorado a propósito
                 }
             }
             finally
@@ -296,46 +291,44 @@ namespace Server
             Console.WriteLine($"Usuario {user} registrado correctamente en base de datos");
         }
 
-        static async void LobbyGroup(Socket socket, string groupCode, User user)
+        static async Task LobbyGroup(Socket socket, string groupCode, User user)
         {
             while (true)
             {
-                var session = groupSessionManager.Get(groupCode);
+                GroupSession? session = groupSessionManager.Get(groupCode);
 
-                // Si la sesión ya no existe, avisamos y salimos
                 if (session == null)
                 {
                     SocketTools.sendInt(socket, -1);
                     return;
                 }
 
-                // Enviamos cuántos miembros hay ahora mismo
                 SocketTools.sendInt(socket, session.MemberCount);
+                SocketTools.sendBool(socket, session.HasStarted);
 
-                // Esperamos opción del cliente:
-                // 1 = refresh
-                // 2 = salir
                 int option = SocketTools.receiveInt(socket);
 
                 switch (option)
                 {
-                    case 1:
-                        // refresh -> no hacemos nada, el while vuelve a iterar
+                    case (int)LobbyOption.Refresh:
                         break;
 
-                    case 2:
-                        session.RemoveMember(user.id);
+                    case (int)LobbyOption.Exit:
+                        {
+                            session.RemoveMember(user.id);
 
-                        Console.WriteLine($"[INFO] Usuario {user.username} salió del grupo {groupCode}");
+                            Console.WriteLine($"[INFO] Usuario {user.username} salió del grupo {groupCode}");
 
-                        // Si quieres, aquí podrías eliminar el grupo si queda vacío: => cuando quedaria vacio?
-                        // if (session.MemberCount == 0)
-                        // {
-                        //     groupSessionManager.Remove(groupCode);
-                        // }
+                            if (session.MemberCount == 0)
+                            {
+                                groupSessionManager.Remove(groupCode);
+                                Console.WriteLine($"[INFO] Sesión {groupCode} eliminada por quedar vacía.");
+                            }
 
-                        return;
-                    case 3: // start (solo owner)
+                            return;
+                        }
+
+                    case (int)LobbyOption.Start:
                         {
                             if (user.id != session.OwnerUserId)
                             {
@@ -344,63 +337,102 @@ namespace Server
                             }
 
                             bool started = session.Start();
-
                             SocketTools.sendBool(socket, started);
 
                             if (!started)
                             {
                                 Console.WriteLine($"[WARN] El grupo {groupCode} ya estaba iniciado.");
-                                break;
                             }
-
-                            Console.WriteLine($"[INFO] Grupo {groupCode} iniciado por owner");
-
-                            ReceiveLocationService receiveLocationService = new ReceiveLocationService();
-                            bool allReceived = receiveLocationService.Execute(socket, session, user);
-
-                            if (allReceived)
+                            else
                             {
-                                Console.WriteLine("[INFO] Ya están todas las ubicaciones. Listo para procesar.");
-
-                                IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
-
-                                List<GeometryUtils.GeographicLocation> points = locations
-                                    .Select(location => new GeometryUtils.GeographicLocation(location.Latitude, location.Longitude))
-                                    .ToList();
-
-                                GeometryUtils.GeographicLocation centroid = GeometryUtils.CalculateCentroid(points);
-
-                                Console.WriteLine($"[INFO] Punto geométrico calculado: {centroid.Latitude}, {centroid.Longitude}");
-
-                                using HttpClient httpClient = new HttpClient();
-                                OTP otp = new OTP(httpClient);
-
-                                OTP.Coordenada destination = new OTP.Coordenada(centroid.Latitude, centroid.Longitude);
-
-                                foreach (UserLocation location in locations)
-                                {
-                                    OTP.Coordenada origin = new OTP.Coordenada(location.Latitude, location.Longitude);
-
-                                    string jsonResponse = await otp.ConsultarAsync(origin, destination, "foot");
-                                    int duration = otp.ExtraerDuracion(jsonResponse);
-
-                                    Console.WriteLine($"[INFO] Usuario {location.UserId} tarda {duration} segundos al punto geométrico.");
-                                }
+                                Console.WriteLine($"[INFO] Grupo {groupCode} iniciado por owner");
                             }
 
                             break;
                         }
 
+                    case (int)LobbyOption.SendLocation:
+                        {
+                            if (!session.HasStarted)
+                            {
+                                Console.WriteLine("[WARN] Se intentó enviar ubicación antes de iniciar el grupo.");
 
+                                SocketTools.sendDouble(socket, 0);
+                                SocketTools.sendDouble(socket, 0);
+                                SocketTools.sendInt(socket, -1);
+                                break;
+                            }
 
-                        return; // salimos del lobby            
+                            ReceiveLocationService receiveLocationService = new ReceiveLocationService();
+                            bool allReceived = receiveLocationService.Execute(socket, session, user);
+
+                            if (!allReceived)
+                            {
+                                Console.WriteLine($"[INFO] Aún faltan ubicaciones en el grupo {groupCode}.");
+
+                                SocketTools.sendDouble(socket, 0);
+                                SocketTools.sendDouble(socket, 0);
+                                SocketTools.sendInt(socket, -1);
+                                break;
+                            }
+
+                            Console.WriteLine("[INFO] Ya están todas las ubicaciones. Listo para procesar.");
+
+                            IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
+
+                            List<GeometryUtils.GeographicLocation> points = locations
+                                .Select(location => new GeometryUtils.GeographicLocation(location.Latitude, location.Longitude))
+                                .ToList();
+
+                            GeometryUtils.GeographicLocation centroid = GeometryUtils.CalculateCentroid(points);
+
+                            Console.WriteLine($"[INFO] Punto geométrico calculado: {centroid.Latitude}, {centroid.Longitude}");
+
+                            try
+                            {
+                                using HttpClient httpClient = new HttpClient();
+                                OTP otp = new OTP(httpClient);
+
+                                UserLocation? currentLocation = session.GetLocation(user.id);
+                                if (currentLocation == null)
+                                {
+                                    Console.WriteLine("[WARN] No se encontró ubicación del usuario actual.");
+
+                                    SocketTools.sendDouble(socket, 0);
+                                    SocketTools.sendDouble(socket, 0);
+                                    SocketTools.sendInt(socket, -1);
+                                    break;
+                                }
+
+                                OTP.Coordenada origin = new OTP.Coordenada(currentLocation.Latitude, currentLocation.Longitude);
+                                OTP.Coordenada destination = new OTP.Coordenada(centroid.Latitude, centroid.Longitude);
+
+                                string jsonResponse = await otp.ConsultarAsync(origin, destination, "foot");
+                                int duration = otp.ExtraerDuracion(jsonResponse);
+
+                                Console.WriteLine($"[INFO] Duración calculada para user {currentLocation.UserId}: {duration}");
+
+                                SocketTools.sendDouble(socket, centroid.Latitude);
+                                SocketTools.sendDouble(socket, centroid.Longitude);
+                                SocketTools.sendInt(socket, duration);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine("[ERROR] Fallo al consultar OTP:");
+                                Console.WriteLine(ex.Message);
+
+                                SocketTools.sendDouble(socket, 0);
+                                SocketTools.sendDouble(socket, 0);
+                                SocketTools.sendInt(socket, -2);
+                            }
+
+                            break;
+                        }
 
                     default:
-                        // Opción no válida: seguimos en el lobby
                         break;
                 }
             }
         }
-
     }
 }
