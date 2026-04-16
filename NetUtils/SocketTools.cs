@@ -2,14 +2,13 @@
 using System.Net.Sockets;
 using System.Text;
 
-
 namespace NetUtils
 {
     /// <summary>
     /// Proporciona utilidades de bajo nivel para enviar y recibir tipos de datos
     /// a través de sockets, centralizando la serialización básica del protocolo.
     /// </summary>
-    public class SocketTools // networkstream si son 5 paquetes y se pierde uno por el camino que? eso asegura que manda todos los paquetes
+    public class SocketTools
     {
         public static byte[] ReceiveExact(Socket socket, int size)
         {
@@ -40,52 +39,55 @@ namespace NetUtils
             byte[] bytes = ReceiveExact(socket, sizeof(bool));
             return BitConverter.ToBoolean(bytes, 0);
         }
+
         public static void sendInt(Socket socket, int num)
         {
             byte[] bytes = BitConverter.GetBytes(num);
             socket.Send(bytes);
         }
+
         public static int receiveInt(Socket socket)
         {
             byte[] bytes = ReceiveExact(socket, sizeof(int));
             return BitConverter.ToInt32(bytes, 0);
         }
+
         public static string receiveString(Socket socket)
         {
             int length = receiveInt(socket);
             byte[] bytes = ReceiveExact(socket, length);
             return Encoding.UTF8.GetString(bytes);
         }
+
         public static void sendString(string message, Socket socket)
         {
-            // 1. Convertimos el string a bytes PRIMERO
             byte[] bytes = Encoding.UTF8.GetBytes(message);
-
-            // 2. Calculamos el tamaño real en BYTES, no en caracteres
             int size = bytes.Length;
 
-            // 3. Enviamos el tamaño (4 bytes del Int)
             byte[] sizeBytes = BitConverter.GetBytes(size);
             socket.Send(sizeBytes);
+            socket.Send(bytes);
+        }
 
-            // 4. Enviamos el contenido real
-            socket.Send(bytes);
-        }
-        public static void sendDouble(Socket socket, double coordenadas)
+        public static void sendDouble(Socket socket, double value)
         {
-            byte[] bytes = BitConverter.GetBytes(coordenadas);
+            byte[] bytes = BitConverter.GetBytes(value);
             socket.Send(bytes);
         }
+
+        // CORRECCIÓN: ahora usa ReceiveExact igual que el resto de métodos,
+        // evitando lecturas parciales en condiciones de red real.
         public static double receiveDouble(Socket socket)
         {
-            byte[] bytes = new byte[sizeof(double)];
-            socket.Receive(bytes);
-            return BitConverter.ToDouble(bytes);
+            byte[] bytes = ReceiveExact(socket, sizeof(double));
+            return BitConverter.ToDouble(bytes, 0);
         }
+
         public static void sendDate(DateOnly date, Socket socket)
         {
             sendString(date.ToString("yyyy-MM-dd"), socket);
         }
+
         public static Socket CreateSocketConnection(string ip, int port)
         {
             IPAddress address = IPAddress.Parse(ip);

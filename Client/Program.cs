@@ -40,7 +40,8 @@ namespace Client
             Refresh = 1,
             Exit = 2,
             Start = 3,
-            SendLocation = 4
+            SendLocation = 4,
+            PollResult = 5   // NUEVO: igual que en el servidor
         }
 
         static void Main(string[] args)
@@ -151,7 +152,7 @@ namespace Client
 
         public static void ShowLoggedMenu(Socket socket)
         {
-            int currentTab = 1; // 1: Home, 2: Group, 3: Map, 4: Profile
+            int currentTab = 1;
             bool inApp = true;
 
             while (inApp)
@@ -161,18 +162,10 @@ namespace Client
 
                 switch (currentTab)
                 {
-                    case 1:
-                        PrintHomeContent();
-                        break;
-                    case 2:
-                        PrintGroupContent();
-                        break;
-                    case 3:
-                        PrintMapContent();
-                        break;
-                    case 4:
-                        PrintProfileContent();
-                        break;
+                    case 1: PrintHomeContent(); break;
+                    case 2: PrintGroupContent(); break;
+                    case 3: PrintMapContent(); break;
+                    case 4: PrintProfileContent(); break;
                 }
 
                 Console.WriteLine("\n==============================");
@@ -203,14 +196,10 @@ namespace Client
                 {
                     case 2:
                         {
-                            // Si devuelve false, significa que el flujo de grupo
-                            // ha consumido/cerrado la sesión lógica actual
                             bool keepUsingSocket = HandleGroupTab(socket, input);
 
                             if (!keepUsingSocket)
-                            {
                                 inApp = false;
-                            }
 
                             break;
                         }
@@ -236,17 +225,12 @@ namespace Client
             }
         }
 
-        // Devuelve false cuando el flujo ya no debe seguir usando el socket actual
         public static bool HandleGroupTab(Socket socket, string? input)
         {
             if (input == "c")
-            {
                 return CreateGroupFlow(socket);
-            }
             else if (input == "u")
-            {
                 return JoinGroupFlow(socket);
-            }
             else
             {
                 Console.WriteLine("\nOpción no reconocida.");
@@ -255,9 +239,6 @@ namespace Client
             }
         }
 
-        // IMPORTANTE:
-        // Tu servidor aún no implementa CreateGroup real en Program.cs
-        // así que por ahora probablemente devolverá false.
         public static bool CreateGroupFlow(Socket socket)
         {
             Console.WriteLine("\n[Lógica] Iniciando creación de grupo...");
@@ -269,7 +250,6 @@ namespace Client
             {
                 Console.WriteLine("Nombre del grupo (obligatorio):");
                 Console.Write(">");
-
                 nameGroup = Console.ReadLine()?.Trim() ?? string.Empty;
 
                 if (string.IsNullOrWhiteSpace(nameGroup))
@@ -277,7 +257,6 @@ namespace Client
                     Console.WriteLine("El nombre no puede estar vacío.");
                     continue;
                 }
-
                 break;
             }
 
@@ -288,9 +267,7 @@ namespace Client
                 Console.WriteLine("1. Bailar | 2. Cena | 3. Deporte | 4. Paseo | 5. Cafe");
                 Console.Write(">");
 
-                string? inputLabel = Console.ReadLine();
-
-                if (!int.TryParse(inputLabel, out int opcion))
+                if (!int.TryParse(Console.ReadLine(), out int opcion))
                 {
                     Console.WriteLine("Por favor, introduce un número válido.");
                     continue;
@@ -312,7 +289,6 @@ namespace Client
             {
                 Console.WriteLine("Descripción (obligatorio o '.' para vacío):");
                 Console.Write(">");
-
                 string inputDescription = Console.ReadLine()?.Trim() ?? string.Empty;
 
                 if (inputDescription == ".")
@@ -336,7 +312,6 @@ namespace Client
                 Console.WriteLine("Método:");
                 Console.WriteLine("1. PuntoOptimo | 2. Recomendacion");
                 Console.Write(">");
-
                 string inputMethod = Console.ReadLine()?.Trim() ?? string.Empty;
 
                 if (!int.TryParse(inputMethod, out int opcion))
@@ -373,20 +348,14 @@ namespace Client
                 Console.WriteLine("Pulsa una tecla para entrar al lobby...");
                 Console.ReadKey();
 
-                // Esto solo funcionará de verdad cuando el servidor,
-                // después de crear, te meta también en LobbyGroup.
                 LobbyGroupFlow(socket, receiveGroupCode, true);
-
-                // Con tu servidor actual, al salir del lobby el socket se cerrará.
                 return false;
             }
             else
             {
                 Console.WriteLine("No ha sido posible crear el grupo.");
-                Console.WriteLine("Esto es normal si el servidor aún no tiene implementado CreateGroup.");
                 Console.ReadKey();
                 Console.Clear();
-
                 return true;
             }
         }
@@ -415,10 +384,7 @@ namespace Client
                 Console.WriteLine("Te has unido correctamente al grupo.");
                 Console.ReadKey();
 
-                // A partir de aquí el servidor entra en LobbyGroup(...)
                 LobbyGroupFlow(socket, groupCode, false);
-
-                // El servidor cerrará la conexión al salir del lobby.
                 return false;
             }
             else
@@ -429,7 +395,6 @@ namespace Client
             }
         }
 
-        // Este método ya habla con el lobby real del servidor
         public static void LobbyGroupFlow(Socket socket, string groupCode, bool userOwner)
         {
             bool inLobby = true;
@@ -438,7 +403,7 @@ namespace Client
             while (inLobby)
             {
                 Console.Clear();
-                Console.WriteLine($"👥 Grupo: {groupCode}");
+                Console.WriteLine($"Grupo: {groupCode}");
                 Console.WriteLine("--------------------------------");
                 Console.WriteLine("      [ . . . SALA DE ESPERA . . . ]      ");
                 Console.WriteLine("--------------------------------");
@@ -453,33 +418,89 @@ namespace Client
                     Console.WriteLine("Has entrado al grupo correctamente.");
                 }
 
+                // CORRECCIÓN: el servidor ahora envía primero un bool de señal
+                // para indicar si la sesión sigue válida antes de los datos reales.
+                bool sessionValid = SocketTools.receiveBool(socket);
+
+                if (!sessionValid)
+                {
+                    Console.WriteLine("\nLa sesión ha finalizado o ha sido eliminada.");
+                    Console.ReadKey();
+                    return;
+                }
+
                 int memberCount = SocketTools.receiveInt(socket);
                 bool hasStarted = SocketTools.receiveBool(socket);
 
                 Console.WriteLine($"\nMiembros actuales en sala: {memberCount}");
                 Console.WriteLine($"Estado del grupo: {(hasStarted ? "INICIADO" : "ESPERANDO START")}");
 
+                // CORRECCIÓN: si ya envié mi ubicación, hago polling en lugar de
+                // mostrar el menú normal. Así recibo el resultado cuando el resto
+                // del grupo también haya enviado la suya.
+                if (hasStarted && locationSent)
+                {
+                    Console.WriteLine("\nEsperando a que el resto del grupo envíe su ubicación...");
+                    Thread.Sleep(2000);
+
+                    SocketTools.sendInt(socket, (int)LobbyOption.PollResult);
+
+                    double destLat = SocketTools.receiveDouble(socket);
+                    double destLon = SocketTools.receiveDouble(socket);
+                    int duration = SocketTools.receiveInt(socket);
+
+                    if (duration == -1)
+                    {
+                        Console.WriteLine("Todavía faltan ubicaciones. Reintentando...");
+                        Console.ReadKey();
+                    }
+                    else if (duration == -2)
+                    {
+                        Console.WriteLine("Error al calcular la ruta. Contacta con el soporte.");
+                        Console.ReadKey();
+                        locationSent = false;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"\nPunto de encuentro: {destLat}, {destLon}");
+                        Console.WriteLine($"Tiempo estimado: {duration} segundos ({duration / 60} min)");
+                        Console.ReadKey();
+                        locationSent = false; // resultado recibido, dejamos de hacer poll
+                    }
+
+                    continue;
+                }
+
+                // Pedir ubicación si el grupo ya empezó y aún no la hemos enviado
                 if (hasStarted && !locationSent)
                 {
                     Console.WriteLine("\nEl grupo ya ha sido iniciado. Introduce tu ubicación.");
 
-                    Console.WriteLine("Latitud?");
+                    Console.WriteLine("Latitud:");
+                    Console.Write(">");
                     string? inputLatitude = Console.ReadLine()?.Trim().Replace(',', '.');
 
                     if (!double.TryParse(inputLatitude, NumberStyles.Float, CultureInfo.InvariantCulture, out double latitud))
                     {
                         Console.WriteLine("Latitud no válida.");
                         Console.ReadKey();
+
+                        // Necesitamos enviar algo al servidor porque él ya está
+                        // esperando la opción del cliente tras enviar los datos del lobby.
+                        SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
                         continue;
                     }
 
-                    Console.WriteLine("Longitud?");
+                    Console.WriteLine("Longitud:");
+                    Console.Write(">");
                     string? inputLongitude = Console.ReadLine()?.Trim().Replace(',', '.');
 
                     if (!double.TryParse(inputLongitude, NumberStyles.Float, CultureInfo.InvariantCulture, out double longitud))
                     {
                         Console.WriteLine("Longitud no válida.");
                         Console.ReadKey();
+
+                        SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
                         continue;
                     }
 
@@ -493,29 +514,33 @@ namespace Client
 
                     if (durationSeconds == -1)
                     {
-                        Console.WriteLine("Ubicación enviada correctamente.");
-                        Console.WriteLine("Esperando a que el resto del grupo envíe la suya...");
+                        Console.WriteLine("Ubicación enviada. Esperando al resto del grupo...");
+                        locationSent = true;
+                        Console.ReadKey();
+                    }
+                    else if (durationSeconds == -2)
+                    {
+                        Console.WriteLine("Error al calcular la ruta.");
                         Console.ReadKey();
                     }
                     else
                     {
                         Console.WriteLine($"\nPunto de encuentro: {destinationLatitude}, {destinationLongitude}");
-                        Console.WriteLine($"Tiempo estimado: {durationSeconds} segundos");
+                        Console.WriteLine($"Tiempo estimado: {durationSeconds} segundos ({durationSeconds / 60} min)");
+                        locationSent = false;
                         Console.ReadKey();
                     }
 
-                    locationSent = true;
                     continue;
                 }
 
+                // Menú normal de sala de espera
                 Console.WriteLine("\nOpciones:");
                 Console.WriteLine("1. Refrescar");
                 Console.WriteLine("2. Salir del grupo");
 
                 if (userOwner && !hasStarted)
-                {
                     Console.WriteLine("3. Start");
-                }
 
                 Console.Write(">");
 
@@ -525,7 +550,6 @@ namespace Client
                 {
                     Console.WriteLine("Opción no válida.");
                     Thread.Sleep(700);
-
                     SocketTools.sendInt(socket, (int)LobbyOption.Refresh);
                     continue;
                 }
@@ -552,7 +576,6 @@ namespace Client
                         }
 
                         SocketTools.sendInt(socket, (int)LobbyOption.Start);
-
                         bool responseStart = SocketTools.receiveBool(socket);
 
                         if (!responseStart)
@@ -588,7 +611,7 @@ namespace Client
 
         public static void PrintHomeContent()
         {
-            Console.WriteLine("🏠 INICIO - Actividad reciente");
+            Console.WriteLine("INICIO - Actividad reciente");
             Console.WriteLine("--------------------------------");
             Console.WriteLine("> Noticia: ¡Nueva actualización de mapas disponible!");
             Console.WriteLine("> Tip: crea un grupo rápido usando la pestaña Group.");
@@ -597,7 +620,7 @@ namespace Client
 
         public static void PrintGroupContent()
         {
-            Console.WriteLine("👥 GRUPOS - Gestión de reuniones");
+            Console.WriteLine("GRUPOS - Gestión de reuniones");
             Console.WriteLine("--------------------------------");
             Console.WriteLine("1. [C]rear nuevo grupo");
             Console.WriteLine("2. [U]nirse con código");
@@ -606,7 +629,7 @@ namespace Client
 
         public static void PrintMapContent()
         {
-            Console.WriteLine("📍 MAPA - Punto de encuentro");
+            Console.WriteLine("MAPA - Punto de encuentro");
             Console.WriteLine("--------------------------------");
             Console.WriteLine("      [ . . . MAPA CARGANDO . . . ]      ");
             Console.WriteLine("\n(Aquí aparecerá la ubicación final calculada)");
@@ -614,7 +637,7 @@ namespace Client
 
         public static void PrintProfileContent()
         {
-            Console.WriteLine("👤 PERFIL - Mi cuenta");
+            Console.WriteLine("PERFIL - Mi cuenta");
             Console.WriteLine("--------------------------------");
             Console.WriteLine("Usuario: Invitado_123");
             Console.WriteLine("Estado: Online");

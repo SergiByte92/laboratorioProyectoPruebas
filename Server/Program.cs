@@ -30,11 +30,12 @@ namespace Server
             Refresh = 1,
             Exit = 2,
             Start = 3,
-            SendLocation = 4
+            SendLocation = 4,
+            PollResult = 5   // NUEVO: el cliente ya envió su ubicación y pregunta si ya están todos
         }
 
         public static string connectionString =
-            "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
+            "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
 
         private static readonly GroupSessionManager groupSessionManager = new();
 
@@ -131,6 +132,11 @@ namespace Server
             if (o is not Socket socket)
                 return;
 
+            // Guardamos usuario y código de grupo para poder limpiar en el finally
+            // si el cliente se desconecta abruptamente sin enviar Exit.
+            User? currentUser = null;
+            string? activeGroupCode = null;
+
             try
             {
                 int option = SocketTools.receiveInt(socket);
@@ -141,7 +147,7 @@ namespace Server
 
                     using AppDbContext context = new AppDbContext(connectionString);
 
-                    User? currentUser = CheckLogin(socket, context);
+                    currentUser = CheckLogin(socket, context);
 
                     if (currentUser is null)
                         return;
@@ -172,9 +178,12 @@ namespace Server
                                     session.AddMember(currentUser.id, currentUser.username);
                                     groupSessionManager.Add(session);
 
+                                    activeGroupCode = result.GroupCode;
+
                                     Console.WriteLine($"[INFO] Grupo creado y sesión activa: {result.GroupCode}");
 
                                     await LobbyGroup(socket, result.GroupCode, currentUser);
+                                    activeGroupCode = null; // salió correctamente por Exit
                                     return;
                                 }
 
@@ -192,8 +201,11 @@ namespace Server
 
                                     if (success)
                                     {
+                                        activeGroupCode = groupCode;
+
                                         Console.WriteLine($"[INFO] Usuario {currentUser.username} unido al grupo {groupCode}");
                                         await LobbyGroup(socket, groupCode, currentUser);
+                                        activeGroupCode = null; // salió correctamente por Exit
                                         return;
                                     }
 
@@ -233,12 +245,29 @@ namespace Server
                 {
                     SocketTools.sendBool(socket, false);
                 }
-                catch
-                {
-                }
+                catch { }
             }
             finally
             {
+                // CORRECCIÓN: si el cliente se cayó sin enviar Exit, lo eliminamos
+                // de la sesión para que no quede como miembro zombie.
+                if (currentUser != null && activeGroupCode != null)
+                {
+                    GroupSession? session = groupSessionManager.Get(activeGroupCode);
+
+                    if (session != null)
+                    {
+                        session.RemoveMember(currentUser.id);
+                        Console.WriteLine($"[INFO] Usuario {currentUser.username} eliminado de {activeGroupCode} por desconexión.");
+
+                        if (session.MemberCount == 0)
+                        {
+                            groupSessionManager.Remove(activeGroupCode);
+                            Console.WriteLine($"[INFO] Sesión {activeGroupCode} eliminada por quedar vacía.");
+                        }
+                    }
+                }
+
                 socket.Close();
             }
         }
@@ -297,12 +326,16 @@ namespace Server
             {
                 GroupSession? session = groupSessionManager.Get(groupCode);
 
+                // CORRECCIÓN: antes solo se enviaba un int y el cliente se quedaba
+                // esperando el bool de HasStarted → cuelgue. Ahora se envía primero
+                // una señal booleana para indicar si la sesión sigue válida.
                 if (session == null)
                 {
-                    SocketTools.sendInt(socket, -1);
+                    SocketTools.sendBool(socket, false); // señal: sesión inválida
                     return;
                 }
 
+                SocketTools.sendBool(socket, true); // señal: sesión válida
                 SocketTools.sendInt(socket, session.MemberCount);
                 SocketTools.sendBool(socket, session.HasStarted);
 
@@ -340,13 +373,9 @@ namespace Server
                             SocketTools.sendBool(socket, started);
 
                             if (!started)
-                            {
                                 Console.WriteLine($"[WARN] El grupo {groupCode} ya estaba iniciado.");
-                            }
                             else
-                            {
                                 Console.WriteLine($"[INFO] Grupo {groupCode} iniciado por owner");
-                            }
 
                             break;
                         }
@@ -356,7 +385,6 @@ namespace Server
                             if (!session.HasStarted)
                             {
                                 Console.WriteLine("[WARN] Se intentó enviar ubicación antes de iniciar el grupo.");
-
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendInt(socket, -1);
@@ -369,69 +397,93 @@ namespace Server
                             if (!allReceived)
                             {
                                 Console.WriteLine($"[INFO] Aún faltan ubicaciones en el grupo {groupCode}.");
-
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendInt(socket, -1);
                                 break;
                             }
 
-                            Console.WriteLine("[INFO] Ya están todas las ubicaciones. Listo para procesar.");
+                            // Todos han enviado → calculamos y respondemos a este usuario
+                            await SendRouteResult(socket, session, user);
+                            break;
+                        }
 
-                            IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
-
-                            List<GeometryUtils.GeographicLocation> points = locations
-                                .Select(location => new GeometryUtils.GeographicLocation(location.Latitude, location.Longitude))
-                                .ToList();
-
-                            GeometryUtils.GeographicLocation centroid = GeometryUtils.CalculateCentroid(points);
-
-                            Console.WriteLine($"[INFO] Punto geométrico calculado: {centroid.Latitude}, {centroid.Longitude}");
-
-                            try
+                    // NUEVO: el usuario ya envió su ubicación y hace polling
+                    // esperando a que el resto del grupo también la envíe.
+                    case (int)LobbyOption.PollResult:
+                        {
+                            if (!session.AreAllLocationsReceived())
                             {
-                                using HttpClient httpClient = new HttpClient();
-                                OTP otp = new OTP(httpClient);
-
-                                UserLocation? currentLocation = session.GetLocation(user.id);
-                                if (currentLocation == null)
-                                {
-                                    Console.WriteLine("[WARN] No se encontró ubicación del usuario actual.");
-
-                                    SocketTools.sendDouble(socket, 0);
-                                    SocketTools.sendDouble(socket, 0);
-                                    SocketTools.sendInt(socket, -1);
-                                    break;
-                                }
-
-                                OTP.Coordenada origin = new OTP.Coordenada(currentLocation.Latitude, currentLocation.Longitude);
-                                OTP.Coordenada destination = new OTP.Coordenada(centroid.Latitude, centroid.Longitude);
-
-                                string jsonResponse = await otp.ConsultarAsync(origin, destination, "foot");
-                                int duration = otp.ExtraerDuracion(jsonResponse);
-
-                                Console.WriteLine($"[INFO] Duración calculada para user {currentLocation.UserId}: {duration}");
-
-                                SocketTools.sendDouble(socket, centroid.Latitude);
-                                SocketTools.sendDouble(socket, centroid.Longitude);
-                                SocketTools.sendInt(socket, duration);
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine("[ERROR] Fallo al consultar OTP:");
-                                Console.WriteLine(ex.Message);
-
+                                Console.WriteLine($"[INFO] PollResult: aún faltan ubicaciones en {groupCode}.");
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendDouble(socket, 0);
-                                SocketTools.sendInt(socket, -2);
+                                SocketTools.sendInt(socket, -1);
+                                break;
                             }
 
+                            Console.WriteLine($"[INFO] PollResult: todas las ubicaciones listas en {groupCode}.");
+                            await SendRouteResult(socket, session, user);
                             break;
                         }
 
                     default:
                         break;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Calcula el centroide, consulta OTP y envía el resultado de ruta al cliente.
+        /// Extraído como método para no duplicar el bloque en SendLocation y PollResult.
+        /// </summary>
+        static async Task SendRouteResult(Socket socket, GroupSession session, User user)
+        {
+            IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
+
+            List<GeometryUtils.GeographicLocation> points = locations
+                .Select(l => new GeometryUtils.GeographicLocation(l.Latitude, l.Longitude))
+                .ToList();
+
+            GeometryUtils.GeographicLocation centroid = GeometryUtils.CalculateCentroid(points);
+
+            Console.WriteLine($"[INFO] Centroide calculado: {centroid.Latitude}, {centroid.Longitude}");
+
+            try
+            {
+                using HttpClient httpClient = new HttpClient();
+                OTP otp = new OTP(httpClient);
+
+                UserLocation? currentLocation = session.GetLocation(user.id);
+
+                if (currentLocation == null)
+                {
+                    Console.WriteLine("[WARN] No se encontró ubicación del usuario actual.");
+                    SocketTools.sendDouble(socket, 0);
+                    SocketTools.sendDouble(socket, 0);
+                    SocketTools.sendInt(socket, -1);
+                    return;
+                }
+
+                OTP.Coordenada origin = new OTP.Coordenada(currentLocation.Latitude, currentLocation.Longitude);
+                OTP.Coordenada destination = new OTP.Coordenada(centroid.Latitude, centroid.Longitude);
+
+                string jsonResponse = await otp.ConsultarAsync(origin, destination, "foot");
+                int duration = otp.ExtraerDuracion(jsonResponse);
+
+                Console.WriteLine($"[INFO] Duración calculada para user {user.id}: {duration}s");
+
+                SocketTools.sendDouble(socket, centroid.Latitude);
+                SocketTools.sendDouble(socket, centroid.Longitude);
+                SocketTools.sendInt(socket, duration);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[ERROR] Fallo al consultar OTP:");
+                Console.WriteLine(ex.Message);
+
+                SocketTools.sendDouble(socket, 0);
+                SocketTools.sendDouble(socket, 0);
+                SocketTools.sendInt(socket, -2);
             }
         }
     }
