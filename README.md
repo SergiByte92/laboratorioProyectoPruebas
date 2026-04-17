@@ -1,104 +1,148 @@
-# JustMeetingPoint
+<h1 align="center">JustMeetingPoint</h1>
 
 <p align="center">
-  <strong>Distributed client-server application for coordinating group meetups</strong>
+  Distributed client-server application for coordinating group meetups
 </p>
 
 <p align="center">
-  Built with <strong>C# / .NET</strong>, <strong>TCP sockets</strong> and a modular architecture focused on maintainability, communication flow and future evolution.
+  <a href="https://dotnet.microsoft.com/">
+    <img src="https://img.shields.io/badge/.NET-C%23%20%7C%20Multi--project-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET" />
+  </a>
+  <img src="https://img.shields.io/badge/Communication-TCP%20Sockets-0A66C2?style=for-the-badge" alt="TCP Sockets" />
+  <img src="https://img.shields.io/badge/Data-JSON-111827?style=for-the-badge" alt="JSON" />
+  <img src="https://img.shields.io/badge/Architecture-Modular-0F766E?style=for-the-badge" alt="Modular Architecture" />
+  <img src="https://img.shields.io/badge/Status-In%20Development-F59E0B?style=for-the-badge" alt="Status" />
 </p>
+
+<p align="center">
+  Final Degree Project focused on backend communication, modular design and distributed application structure.
+</p>
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [What the project solves](#what-the-project-solves)
+- [Current capabilities](#current-capabilities)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Project structure](#project-structure)
+- [Execution flow](#execution-flow)
+- [Getting started](#getting-started)
+- [Configuration](#configuration)
+- [Project status](#project-status)
+- [Roadmap](#roadmap)
+- [Why this project matters](#why-this-project-matters)
+- [Author](#author)
 
 ---
 
 ## Overview
 
-**JustMeetingPoint** is a distributed application developed as a final degree project, focused on group meetup coordination through a client-server architecture.
+**JustMeetingPoint** is a distributed application developed as a final degree project, designed to support meetup coordination through a client-server architecture.
 
-The current implementation establishes a solid backend-oriented foundation for:
+The repository currently focuses on establishing a solid technical base for:
 
-- user interaction through a dedicated client
-- concurrent communication with a central server
-- message exchange over TCP
-- modular separation between transport, business logic and shared utilities
-- future evolution towards group session management and meeting-point calculation
+- communication between client and server
+- modular separation of responsibilities
+- reusable networking infrastructure
+- structured message exchange
+- future evolution towards group coordination and meeting-point logic
 
-This repository is especially relevant as an engineering exercise in **network communication**, **backend structure**, **state management** and **incremental system design**.
+This is not a static CRUD-oriented repository. Its main value lies in the implementation of **backend communication**, **transport flow**, **shared contracts** and a project structure prepared to grow in complexity without collapsing into tightly coupled code.
 
 ---
 
-## Key capabilities
+## What the project solves
 
-### Current scope
+Coordinating multiple users in a shared flow requires more than persistence alone. It requires:
 
-- Client-server communication over TCP sockets
-- Modular solution split into `Client`, `Server` and shared utilities
-- Structured message exchange using JSON
-- Concurrent server-side connection handling
-- Reusable networking helpers for transport reliability
-- Base architecture prepared for authentication, groups and session coordination
+- reliable communication between independent processes
+- a clear transport model
+- separation between client concerns and server concerns
+- a maintainable base for future real-time logic
 
-### Engineering value
+**JustMeetingPoint** addresses that engineering problem by building the communication and modular backbone first, before adding more advanced domain features.
 
-- Clear separation of responsibilities
-- Reusable communication primitives
-- Scalable project structure for future backend growth
-- Foundation suitable for real-time coordination scenarios
+---
+
+## Current capabilities
+
+### Implemented
+
+- TCP-based client-server communication
+- Multi-project solution split into dedicated responsibilities
+- JSON-based data exchange
+- Shared networking utilities between projects
+- Server-side handling of incoming client interactions
+- Base structure prepared for authentication and group coordination
+
+### Technical strengths
+
+- Clear separation between transport and execution responsibilities
+- Reusable communication helpers
+- Scalable repository structure
+- Good foundation for future distributed features
 
 ---
 
 ## Architecture
 
-The solution is structured around a **layered and modular design**, where each project has a focused responsibility.
+The solution is organized with a modular design where each project has a focused technical role.
 
 ### `Server`
-Responsible for backend execution and coordination logic.
+Handles backend execution and coordination.
 
-Main responsibilities:
+**Responsibilities**
 - listening for incoming TCP connections
-- handling connected clients
-- routing incoming requests
-- coordinating application flow
-- serving as the entry point for server-side business logic
+- receiving and processing requests
+- coordinating the main application flow
+- acting as the entry point for server-side behavior
 
 ### `Client`
-Responsible for user-side interaction and communication with the backend.
+Handles user-side interaction with the distributed system.
 
-Main responsibilities:
+**Responsibilities**
 - connecting to the server
 - sending requests
 - receiving responses
-- driving the interaction flow exposed to the user
+- driving the user interaction flow
 
 ### `NetUtils`
-Shared library for communication and transport helpers.
+Shared infrastructure library used by both sides.
 
-Main responsibilities:
-- socket utility methods
-- JSON serialization helpers
-- shared DTOs / transport contracts
-- reusable low-level networking logic
+**Responsibilities**
+- networking helper methods
+- JSON serialization support
+- shared DTOs or transport contracts
+- low-level reusable communication logic
 
-### Design principles reflected in the repository
+### Architectural characteristics
 
-- **Separation of Concerns** between client, server and shared infrastructure
-- **Modular design** for easier maintenance and extension
-- **Transport abstraction** through reusable helpers
-- **Incremental architecture**, suitable for evolving from prototype to more complete distributed system
+- **Modular separation** between execution layers
+- **Shared transport utilities** to reduce duplication
+- **Incremental design**, allowing the solution to evolve feature by feature
+- **Backend-first thinking**, prioritizing communication and architecture before UI complexity
 
-While the repository does not appear to implement a full Clean Architecture setup, it does reflect solid architectural intent and good backend structuring practices.
+Although the repository is not presented as a strict Clean Architecture implementation, it reflects sound backend engineering criteria and a maintainable project layout.
 
 ---
 
-## Technology stack
+## Tech stack
+
+<p>
+  <img src="https://skillicons.dev/icons?i=cs,dotnet,git,github" alt="Tech stack icons" />
+</p>
 
 | Area | Technology |
 |---|---|
 | Language | C# |
 | Platform | .NET |
 | Communication | TCP Sockets |
-| Data exchange | JSON |
+| Data format | JSON |
 | Version control | Git / GitHub |
-| Solution structure | Multi-project .NET solution |
+| Structure | Multi-project solution |
 
 ---
 
@@ -111,30 +155,43 @@ just-meeting-point/
 │   └── Client application and interaction flow
 │
 ├── Server/
-│   └── TCP server, coordination logic and request handling
+│   └── TCP server, request handling and coordination logic
 │
 ├── NetUtils/
-│   └── Shared networking utilities, DTOs and JSON helpers
+│   └── Shared networking helpers, DTOs and JSON utilities
 │
 └── JustMeetingPoint.sln
     └── Solution entry point
 ```
 
-This layout keeps shared transport logic out of the client and server projects, which improves reuse and reduces duplication.
+### Structure rationale
+
+This separation avoids mixing transport concerns with application flow and keeps shared communication logic outside the main execution projects. That decision improves reuse, reduces duplication and makes future growth cleaner.
 
 ---
 
 ## Execution flow
 
-At a high level, the system works as follows:
+```text
+Client starts
+   ↓
+Connects to Server via TCP
+   ↓
+Sends JSON-based request
+   ↓
+Server receives and processes the request
+   ↓
+Shared transport helpers standardize communication
+   ↓
+Server returns response to Client
+```
 
-1. The server starts and begins listening for TCP client connections
-2. A client connects to the server
-3. Requests and responses are exchanged using JSON-based contracts
-4. The server processes incoming operations and coordinates the application flow
-5. Shared utilities in `NetUtils` support consistent communication between both sides
+This communication loop is the basis for future features such as:
 
-This flow provides the base required for more advanced features such as authentication, group coordination and meeting-point calculation.
+- authentication
+- group creation and joining
+- session coordination
+- meeting-point calculation
 
 ---
 
@@ -173,7 +230,7 @@ dotnet run
 
 ### Run the client
 
-In a separate terminal:
+Open another terminal and execute:
 
 ```bash
 cd Client
@@ -186,16 +243,18 @@ dotnet run
 
 ## Configuration
 
-At the current stage, configuration is expected to be code-based or local to each project.
+At the current stage, configuration is expected to be local and code-based depending on the project setup.
 
-Typical parameters to review depending on the implementation:
+Typical settings to review:
 
-- server IP / host
+- server host or IP
 - server port
-- JSON transport contracts
-- local execution settings
+- local execution configuration
+- transport contracts where applicable
 
-For future iterations, a more production-ready approach would be to move configuration into:
+### Recommended evolution
+
+For a more production-ready configuration model, the next step would be to externalize settings through:
 
 - `appsettings.json`
 - environment variables
@@ -205,52 +264,62 @@ For future iterations, a more production-ready approach would be to move configu
 
 ## Project status
 
-**Current stage:** development / academic prototype with a strong technical foundation.
+> **Status:** In development
 
 The repository already demonstrates:
 
-- a working distributed structure
-- communication between independent components
-- reusable networking infrastructure
-- a codebase prepared for future backend-oriented features
+- a functional distributed base
+- communication between isolated components
+- reusable infrastructure for transport logic
+- a solution structure prepared for future backend-oriented growth
 
-The project should be understood as a **foundation-first implementation**, where architecture and communication are established before introducing more advanced domain behavior.
+The current stage should be understood as a **technical foundation with clear expansion path**, rather than a finished product.
 
 ---
 
 ## Roadmap
 
-Planned or logical next steps for the project include:
+### Next technical milestones
 
 - user authentication and identity flow
-- persistent storage integration where applicable
+- stronger request and response validation
 - group lifecycle management
-- stronger request/response validation
-- protocol hardening and error handling improvements
+- persistent storage where needed
+- hardened error handling
+- richer communication protocol
 - meeting-point calculation logic
-- richer real-time coordination between connected users
+- more advanced real-time coordination
 
 ---
 
 ## Why this project matters
 
-From an engineering perspective, this project is valuable because it goes beyond a static CRUD application and works on concerns that are common in real backend systems:
+This project is valuable from a backend engineering perspective because it focuses on concerns that are closer to real systems than a basic CRUD application:
 
-- state coordination across multiple actors
-- transport reliability
-- modular communication design
-- system growth from prototype to structured architecture
+- distributed communication
+- coordination between separate runtime components
+- reusable transport infrastructure
+- maintainable growth path from prototype to structured solution
 
-It is a strong portfolio piece for demonstrating practical understanding of **backend development**, **network communication** and **distributed application structure**.
+It is a strong portfolio project for demonstrating practical work in:
+
+- backend development
+- socket-based communication
+- modular architecture
+- distributed system fundamentals
 
 ---
 
 ## Author
 
-**Sergi Garcia**  
-Backend Developer focused on C# / .NET, maintainable backend architecture and distributed systems.
+<p>
+  <strong>Sergi Garcia</strong><br />
+  Backend Developer focused on C# / .NET, maintainable architecture and distributed systems.
+</p>
 
-- GitHub: [SergiByte92](https://github.com/SergiByte92)
+<p>
+  <a href="https://github.com/SergiByte92">GitHub Profile</a>
+</p>
 
 ---
 
