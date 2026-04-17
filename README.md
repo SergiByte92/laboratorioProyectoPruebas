@@ -1,328 +1,328 @@
 <h1 align="center">JustMeetingPoint</h1>
 
 <p align="center">
-  Distributed client-server application for coordinating group meetups
+  Aplicación distribuida cliente-servidor para coordinar quedadas en grupo
 </p>
 
 <p align="center">
   <a href="https://dotnet.microsoft.com/">
-    <img src="https://img.shields.io/badge/.NET-C%23%20%7C%20Multi--project-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET" />
+    <img src="https://img.shields.io/badge/.NET-C%23%20%7C%20Soluci%C3%B3n%20mult proyecto-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET" />
   </a>
-  <img src="https://img.shields.io/badge/Communication-TCP%20Sockets-0A66C2?style=for-the-badge" alt="TCP Sockets" />
-  <img src="https://img.shields.io/badge/Data-JSON-111827?style=for-the-badge" alt="JSON" />
-  <img src="https://img.shields.io/badge/Architecture-Modular-0F766E?style=for-the-badge" alt="Modular Architecture" />
-  <img src="https://img.shields.io/badge/Status-In%20Development-F59E0B?style=for-the-badge" alt="Status" />
+  <img src="https://img.shields.io/badge/Comunicaci%C3%B3n-TCP%20Sockets-0A66C2?style=for-the-badge" alt="TCP Sockets" />
+  <img src="https://img.shields.io/badge/Datos-JSON-111827?style=for-the-badge" alt="JSON" />
+  <img src="https://img.shields.io/badge/Arquitectura-Modular-0F766E?style=for-the-badge" alt="Arquitectura modular" />
+  <img src="https://img.shields.io/badge/Estado-En%20desarrollo-F59E0B?style=for-the-badge" alt="Estado" />
 </p>
 
 <p align="center">
-  Final Degree Project focused on backend communication, modular design and distributed application structure.
+  Proyecto Final de Grado centrado en comunicación backend, diseño modular y fundamentos de sistemas distribuidos.
 </p>
 
 ---
 
-## Table of Contents
+## Índice
 
-- [Overview](#overview)
-- [What the project solves](#what-the-project-solves)
-- [Current capabilities](#current-capabilities)
-- [Architecture](#architecture)
-- [Tech stack](#tech-stack)
-- [Project structure](#project-structure)
-- [Execution flow](#execution-flow)
-- [Getting started](#getting-started)
-- [Configuration](#configuration)
-- [Project status](#project-status)
+- [Visión general](#visión-general)
+- [Qué problema aborda](#qué-problema-aborda)
+- [Capacidades actuales](#capacidades-actuales)
+- [Arquitectura](#arquitectura)
+- [Stack tecnológico](#stack-tecnológico)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Flujo de ejecución](#flujo-de-ejecución)
+- [Puesta en marcha](#puesta-en-marcha)
+- [Configuración](#configuración)
+- [Estado del proyecto](#estado-del-proyecto)
 - [Roadmap](#roadmap)
-- [Why this project matters](#why-this-project-matters)
-- [Author](#author)
+- [Por qué este proyecto tiene valor](#por-qué-este-proyecto-tiene-valor)
+- [Autor](#autor)
 
 ---
 
-## Overview
+## Visión general
 
-**JustMeetingPoint** is a distributed application developed as a final degree project, designed to support meetup coordination through a client-server architecture.
+**JustMeetingPoint** es una aplicación distribuida desarrollada como proyecto final, orientada a la coordinación de quedadas mediante una arquitectura cliente-servidor.
 
-The repository currently focuses on establishing a solid technical base for:
+En su estado actual, el repositorio se centra en construir una base técnica sólida para:
 
-- communication between client and server
-- modular separation of responsibilities
-- reusable networking infrastructure
-- structured message exchange
-- future evolution towards group coordination and meeting-point logic
+- comunicación entre cliente y servidor
+- separación modular de responsabilidades
+- infraestructura reutilizable de red
+- intercambio estructurado de mensajes
+- evolución futura hacia la gestión de grupos y el cálculo de puntos de encuentro
 
-This is not a static CRUD-oriented repository. Its main value lies in the implementation of **backend communication**, **transport flow**, **shared contracts** and a project structure prepared to grow in complexity without collapsing into tightly coupled code.
-
----
-
-## What the project solves
-
-Coordinating multiple users in a shared flow requires more than persistence alone. It requires:
-
-- reliable communication between independent processes
-- a clear transport model
-- separation between client concerns and server concerns
-- a maintainable base for future real-time logic
-
-**JustMeetingPoint** addresses that engineering problem by building the communication and modular backbone first, before adding more advanced domain features.
+No es un repositorio centrado en un CRUD clásico. Su valor principal está en la implementación de **comunicación backend**, **flujo de transporte**, **contratos compartidos** y una estructura preparada para crecer sin derivar en código fuertemente acoplado.
 
 ---
 
-## Current capabilities
+## Qué problema aborda
 
-### Implemented
+Coordinar varios usuarios dentro de un mismo flujo no requiere solo persistencia. Requiere además:
 
-- TCP-based client-server communication
-- Multi-project solution split into dedicated responsibilities
-- JSON-based data exchange
-- Shared networking utilities between projects
-- Server-side handling of incoming client interactions
-- Base structure prepared for authentication and group coordination
+- comunicación fiable entre procesos independientes
+- un modelo de transporte claro
+- separación entre responsabilidades de cliente y servidor
+- una base mantenible sobre la que evolucionar lógica en tiempo real
 
-### Technical strengths
-
-- Clear separation between transport and execution responsibilities
-- Reusable communication helpers
-- Scalable repository structure
-- Good foundation for future distributed features
+**JustMeetingPoint** aborda ese problema desde una perspectiva de ingeniería: primero consolida la base de comunicación y la estructura modular, y después deja preparada la evolución hacia funcionalidades de dominio más avanzadas.
 
 ---
 
-## Architecture
+## Capacidades actuales
 
-The solution is organized with a modular design where each project has a focused technical role.
+### Implementado
+
+- Comunicación cliente-servidor mediante TCP sockets
+- Solución multiproyecto con responsabilidades separadas
+- Intercambio de datos en JSON
+- Utilidades de red compartidas entre proyectos
+- Gestión de interacciones entrantes en el servidor
+- Base preparada para autenticación y coordinación de grupos
+
+### Puntos fuertes técnicos
+
+- Separación clara entre transporte y ejecución
+- Helpers reutilizables para comunicación
+- Estructura escalable del repositorio
+- Buena base para funcionalidades distribuidas futuras
+
+---
+
+## Arquitectura
+
+La solución está organizada con un diseño modular en el que cada proyecto tiene una responsabilidad técnica concreta.
 
 ### `Server`
-Handles backend execution and coordination.
+Gestiona la ejecución backend y la coordinación general.
 
-**Responsibilities**
-- listening for incoming TCP connections
-- receiving and processing requests
-- coordinating the main application flow
-- acting as the entry point for server-side behavior
+**Responsabilidades**
+- escuchar conexiones TCP entrantes
+- recibir y procesar solicitudes
+- coordinar el flujo principal de la aplicación
+- actuar como punto de entrada del comportamiento del servidor
 
 ### `Client`
-Handles user-side interaction with the distributed system.
+Gestiona la interacción del usuario con el sistema distribuido.
 
-**Responsibilities**
-- connecting to the server
-- sending requests
-- receiving responses
-- driving the user interaction flow
+**Responsabilidades**
+- conectarse al servidor
+- enviar solicitudes
+- recibir respuestas
+- conducir el flujo de interacción expuesto al usuario
 
 ### `NetUtils`
-Shared infrastructure library used by both sides.
+Biblioteca compartida utilizada por ambas partes.
 
-**Responsibilities**
-- networking helper methods
-- JSON serialization support
-- shared DTOs or transport contracts
-- low-level reusable communication logic
+**Responsabilidades**
+- métodos auxiliares de red
+- soporte para serialización JSON
+- DTOs o contratos de transporte compartidos
+- lógica reutilizable de bajo nivel para la comunicación
 
-### Architectural characteristics
+### Características arquitectónicas
 
-- **Modular separation** between execution layers
-- **Shared transport utilities** to reduce duplication
-- **Incremental design**, allowing the solution to evolve feature by feature
-- **Backend-first thinking**, prioritizing communication and architecture before UI complexity
+- **Separación modular** entre capas de ejecución
+- **Utilidades compartidas de transporte** para reducir duplicidad
+- **Diseño incremental**, pensado para evolucionar funcionalidad a funcionalidad
+- **Enfoque backend-first**, priorizando comunicación y estructura antes que complejidad de interfaz
 
-Although the repository is not presented as a strict Clean Architecture implementation, it reflects sound backend engineering criteria and a maintainable project layout.
+Aunque el repositorio no se presenta como una implementación estricta de Clean Architecture, sí refleja un criterio de diseño sólido y una estructura mantenible.
 
 ---
 
-## Tech stack
+## Stack tecnológico
 
 <p>
-  <img src="https://skillicons.dev/icons?i=cs,dotnet,git,github" alt="Tech stack icons" />
+  <img src="https://skillicons.dev/icons?i=cs,dotnet,git,github" alt="Iconos del stack" />
 </p>
 
-| Area | Technology |
+| Área | Tecnología |
 |---|---|
-| Language | C# |
-| Platform | .NET |
-| Communication | TCP Sockets |
-| Data format | JSON |
-| Version control | Git / GitHub |
-| Structure | Multi-project solution |
+| Lenguaje | C# |
+| Plataforma | .NET |
+| Comunicación | TCP Sockets |
+| Formato de datos | JSON |
+| Control de versiones | Git / GitHub |
+| Estructura | Solución multiproyecto |
 
 ---
 
-## Project structure
+## Estructura del proyecto
 
 ```text
 just-meeting-point/
 │
 ├── Client/
-│   └── Client application and interaction flow
+│   └── Aplicación cliente y flujo de interacción
 │
 ├── Server/
-│   └── TCP server, request handling and coordination logic
+│   └── Servidor TCP, gestión de solicitudes y coordinación
 │
 ├── NetUtils/
-│   └── Shared networking helpers, DTOs and JSON utilities
+│   └── Helpers compartidos de red, DTOs y utilidades JSON
 │
 └── JustMeetingPoint.sln
-    └── Solution entry point
+    └── Punto de entrada de la solución
 ```
 
-### Structure rationale
+### Criterio de estructura
 
-This separation avoids mixing transport concerns with application flow and keeps shared communication logic outside the main execution projects. That decision improves reuse, reduces duplication and makes future growth cleaner.
+Esta separación evita mezclar la lógica de transporte con el flujo de aplicación y mantiene la infraestructura compartida fuera de los proyectos principales de ejecución. Eso mejora la reutilización, reduce duplicidad y facilita la evolución del sistema.
 
 ---
 
-## Execution flow
+## Flujo de ejecución
 
 ```text
-Client starts
+Cliente inicia
    ↓
-Connects to Server via TCP
+Se conecta al servidor vía TCP
    ↓
-Sends JSON-based request
+Envía una solicitud en JSON
    ↓
-Server receives and processes the request
+El servidor recibe y procesa la solicitud
    ↓
-Shared transport helpers standardize communication
+Las utilidades compartidas normalizan la comunicación
    ↓
-Server returns response to Client
+El servidor devuelve una respuesta al cliente
 ```
 
-This communication loop is the basis for future features such as:
+Este bucle de comunicación es la base sobre la que se pueden construir funcionalidades como:
 
-- authentication
-- group creation and joining
-- session coordination
-- meeting-point calculation
+- autenticación
+- creación y unión de grupos
+- coordinación de sesiones
+- cálculo de punto de encuentro
 
 ---
 
-## Getting started
+## Puesta en marcha
 
-### Prerequisites
+### Requisitos previos
 
-- .NET SDK 6.0 or higher
-- Visual Studio, Rider or VS Code
+- .NET SDK 6.0 o superior
+- Visual Studio, Rider o VS Code
 
-### Clone the repository
+### Clonar el repositorio
 
 ```bash
 git clone https://github.com/SergiByte92/just-meeting-point.git
 cd just-meeting-point
 ```
 
-### Restore dependencies
+### Restaurar dependencias
 
 ```bash
 dotnet restore
 ```
 
-### Build the solution
+### Compilar la solución
 
 ```bash
 dotnet build
 ```
 
-### Run the server
+### Ejecutar el servidor
 
 ```bash
 cd Server
 dotnet run
 ```
 
-### Run the client
+### Ejecutar el cliente
 
-Open another terminal and execute:
+En otra terminal:
 
 ```bash
 cd Client
 dotnet run
 ```
 
-> The server must be running before starting the client.
+> El servidor debe estar en ejecución antes de iniciar el cliente.
 
 ---
 
-## Configuration
+## Configuración
 
-At the current stage, configuration is expected to be local and code-based depending on the project setup.
+En el estado actual, la configuración depende previsiblemente del código o de ajustes locales del proyecto.
 
-Typical settings to review:
+Parámetros habituales a revisar:
 
-- server host or IP
-- server port
-- local execution configuration
-- transport contracts where applicable
+- host o IP del servidor
+- puerto del servidor
+- configuración local de ejecución
+- contratos de transporte, cuando aplique
 
-### Recommended evolution
+### Evolución recomendada
 
-For a more production-ready configuration model, the next step would be to externalize settings through:
+Para acercar el proyecto a un entorno más sólido, el siguiente paso sería externalizar configuración mediante:
 
 - `appsettings.json`
-- environment variables
+- variables de entorno
 - user secrets
 
 ---
 
-## Project status
+## Estado del proyecto
 
-> **Status:** In development
+> **Estado actual:** en desarrollo
 
-The repository already demonstrates:
+El repositorio ya muestra:
 
-- a functional distributed base
-- communication between isolated components
-- reusable infrastructure for transport logic
-- a solution structure prepared for future backend-oriented growth
+- una base distribuida funcional
+- comunicación entre componentes aislados
+- infraestructura reutilizable para transporte
+- una estructura preparada para crecer hacia funcionalidades backend más completas
 
-The current stage should be understood as a **technical foundation with clear expansion path**, rather than a finished product.
+Debe entenderse como una **base técnica con una dirección de evolución clara**, no como un producto cerrado.
 
 ---
 
 ## Roadmap
 
-### Next technical milestones
+### Siguientes hitos técnicos
 
-- user authentication and identity flow
-- stronger request and response validation
-- group lifecycle management
-- persistent storage where needed
-- hardened error handling
-- richer communication protocol
-- meeting-point calculation logic
-- more advanced real-time coordination
-
----
-
-## Why this project matters
-
-This project is valuable from a backend engineering perspective because it focuses on concerns that are closer to real systems than a basic CRUD application:
-
-- distributed communication
-- coordination between separate runtime components
-- reusable transport infrastructure
-- maintainable growth path from prototype to structured solution
-
-It is a strong portfolio project for demonstrating practical work in:
-
-- backend development
-- socket-based communication
-- modular architecture
-- distributed system fundamentals
+- flujo de autenticación de usuarios
+- validación más robusta de solicitudes y respuestas
+- gestión del ciclo de vida de grupos
+- persistencia donde sea necesaria
+- mejora del manejo de errores
+- protocolo de comunicación más rico
+- lógica de cálculo del punto de encuentro
+- coordinación en tiempo real más avanzada
 
 ---
 
-## Author
+## Por qué este proyecto tiene valor
+
+Desde un punto de vista de ingeniería backend, este proyecto resulta interesante porque trabaja problemas más cercanos a sistemas reales que una aplicación CRUD básica:
+
+- comunicación distribuida
+- coordinación entre componentes en ejecución independientes
+- infraestructura reutilizable de transporte
+- evolución mantenible desde prototipo a solución estructurada
+
+Es un buen proyecto de portfolio para demostrar trabajo práctico en:
+
+- desarrollo backend
+- comunicación basada en sockets
+- arquitectura modular
+- fundamentos de sistemas distribuidos
+
+---
+
+## Autor
 
 <p>
   <strong>Sergi Garcia</strong><br />
-  Backend Developer focused on C# / .NET, maintainable architecture and distributed systems.
+  Backend Developer especializado en C# / .NET, arquitectura mantenible y sistemas distribuidos.
 </p>
 
 <p>
-  <a href="https://github.com/SergiByte92">GitHub Profile</a>
+  <a href="https://github.com/SergiByte92">Perfil de GitHub</a>
 </p>
 
 ---
 
-## License
+## Licencia
 
-Academic and portfolio use.
+Uso académico y de portfolio.
