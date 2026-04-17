@@ -35,7 +35,7 @@ namespace Server
         }
 
         public static string connectionString =
-            "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
+            "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
 
         private static readonly GroupSessionManager groupSessionManager = new();
 
@@ -70,7 +70,7 @@ namespace Server
 
         static void ServerAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.1.37");
+            IPAddress address = IPAddress.Parse("192.168.111.29");
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -97,7 +97,7 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.1.37");
+                IPAddress address = IPAddress.Parse("192.168.111.29");
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
                 Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
