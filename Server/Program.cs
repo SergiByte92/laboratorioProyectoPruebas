@@ -35,7 +35,7 @@ namespace Server
         }
 
         public static string connectionString =
-            "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
+            "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
 
         private static readonly GroupSessionManager groupSessionManager = new();
 
@@ -70,7 +70,7 @@ namespace Server
 
         static void ServerAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.111.29");
+            IPAddress address = IPAddress.Parse("192.168.1.36");
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -97,7 +97,7 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.111.29");
+                IPAddress address = IPAddress.Parse("192.168.1.36");
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
                 Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -271,14 +271,13 @@ namespace Server
                 socket.Close();
             }
         }
-
         public static User? CheckLogin(Socket socket, AppDbContext context)
         {
-            string receiveUser = SocketTools.receiveString(socket);
+            string receiveEmail = SocketTools.receiveString(socket);
             string receivePassword = SocketTools.receiveString(socket);
 
             User? userInDb = context.Users
-                .FirstOrDefault(u => u.username == receiveUser && u.password == receivePassword);
+                .FirstOrDefault(u => u.email == receiveEmail && u.password == receivePassword);
 
             bool loginSuccessful = userInDb != null;
             SocketTools.sendBool(socket, loginSuccessful);

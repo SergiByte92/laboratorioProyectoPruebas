@@ -46,7 +46,7 @@ namespace Client
 
         static void Main(string[] args)
         {
-            string ip = "192.168.1.37";
+            string ip = "192.168.1.36";
             int port = 1001;
             bool appRunning = true;
 
@@ -102,7 +102,7 @@ namespace Client
                 Console.WriteLine("      LOGIN");
                 Console.WriteLine("==================");
 
-                Console.WriteLine("Usuario");
+                Console.WriteLine("Correo");
                 Console.Write(">");
                 string? user = Console.ReadLine();
 
