@@ -1,12 +1,11 @@
-﻿using System.Text;
+﻿using Server.Infrastructure;
+using System.Text;
 using System.Text.Json;
 
 namespace Server.API
 {
     public sealed class OTP
     {
-        // ── CLASES DE DATOS ──────────────────────────────────────────────────
-
         public sealed class Coordenada
         {
             public double Latitud { get; set; }
@@ -25,12 +24,9 @@ namespace Server.API
             public string Nombre { get; set; } = "";
         }
 
-        // ── CONFIGURACIÓN ────────────────────────────────────────────────────
-
         private readonly HttpClient _httpClient;
         private const string Url = "http://localhost:8080/otp/transmodel/v3";
 
-        // Query adaptada al schema REAL que has probado en el explorer.
         private const string Query = @"
 query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
   trip(dateTime: $dateTime, from: $from, to: $to) {
@@ -106,14 +102,11 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             _httpClient = httpClient;
         }
 
-        // ── MÉTODOS PÚBLICOS ─────────────────────────────────────────────────
-
         public async Task<string> ConsultarAsync(Coordenada origen, Coordenada destino)
         {
-            Console.WriteLine("[OTP] --------------------------------------------------");
-            Console.WriteLine("[OTP] Consultando ruta...");
-            Console.WriteLine($"[OTP]   Origen  : {origen.Latitud}, {origen.Longitud}");
-            Console.WriteLine($"[OTP]   Destino : {destino.Latitud}, {destino.Longitud}");
+            AppLogger.Info(
+                "OTP",
+                $"Consultando ruta origen={origen.Latitud:F6},{origen.Longitud:F6} destino={destino.Latitud:F6},{destino.Longitud:F6}");
 
             var bodyObject = new
             {
@@ -142,19 +135,19 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
 
             string jsonBody = JsonSerializer.Serialize(bodyObject);
 
-            Console.WriteLine($"[OTP] URL         : {Url}");
-            Console.WriteLine($"[OTP] Body enviado: {jsonBody}");
+            // Solo dejar esto si estás depurando algo muy concreto
+            // AppLogger.Debug("OTP", $"Request body: {jsonBody}");
 
             using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
             using HttpResponseMessage response = await _httpClient.PostAsync(Url, content);
 
             string jsonResponse = await response.Content.ReadAsStringAsync();
 
-            Console.WriteLine($"[OTP] HTTP Status : {(int)response.StatusCode} {response.StatusCode}");
-            Console.WriteLine($"[OTP] Respuesta   : {jsonResponse}");
+            AppLogger.Info("OTP", $"HTTP Status={(int)response.StatusCode} {response.StatusCode}");
 
             if (!response.IsSuccessStatusCode)
             {
+                AppLogger.Error("OTP", $"Error HTTP {(int)response.StatusCode} {response.StatusCode}");
                 throw new Exception($"[OTP] Error HTTP {(int)response.StatusCode} {response.StatusCode}: {jsonResponse}");
             }
 
@@ -164,13 +157,11 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
                 errors.ValueKind == JsonValueKind.Array &&
                 errors.GetArrayLength() > 0)
             {
-                Console.WriteLine($"[OTP] GraphQL errors detectados: {errors}");
+                AppLogger.Error("OTP", $"GraphQL errors detectados: {errors}");
                 throw new Exception($"[OTP] Error GraphQL: {errors}");
             }
 
-            Console.WriteLine("[OTP] Consulta completada correctamente.");
-            Console.WriteLine("[OTP] --------------------------------------------------");
-
+            AppLogger.Debug("OTP", "Consulta completada correctamente.");
             return jsonResponse;
         }
 
@@ -193,7 +184,7 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             if (!data.TryGetProperty("trip", out JsonElement trip) ||
                 trip.ValueKind == JsonValueKind.Null)
             {
-                Console.WriteLine("[OTP] ExtraerDuracion: 'trip' es null. OTP no encontró ruta.");
+                AppLogger.Warn("OTP", "'trip' es null. Sin ruta disponible.");
                 return null;
             }
 
@@ -204,21 +195,40 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             }
 
             int count = patterns.GetArrayLength();
-            Console.WriteLine($"[OTP] ExtraerDuracion: tripPatterns encontrados = {count}");
+            AppLogger.Info("OTP", $"Itinerarios encontrados: {count}");
 
             if (count == 0)
             {
-                Console.WriteLine("[OTP] ExtraerDuracion: tripPatterns vacío. Sin ruta disponible.");
+                AppLogger.Warn("OTP", "tripPatterns vacío. Sin ruta disponible.");
                 return null;
             }
 
-            if (!patterns[0].TryGetProperty("duration", out JsonElement durationElement))
+            JsonElement firstPattern = patterns[0];
+
+            if (!firstPattern.TryGetProperty("duration", out JsonElement durationElement))
             {
                 throw new Exception("[OTP] ExtraerDuracion: el primer tripPattern no contiene 'duration'.");
             }
 
             int duration = durationElement.GetInt32();
-            Console.WriteLine($"[OTP] ExtraerDuracion: duración del primer patrón = {duration}s ({duration / 60} min)");
+
+            double? distance = null;
+            if (firstPattern.TryGetProperty("distance", out JsonElement distanceElement) &&
+                distanceElement.ValueKind != JsonValueKind.Null)
+            {
+                distance = distanceElement.GetDouble();
+            }
+
+            int legsCount = 0;
+            if (firstPattern.TryGetProperty("legs", out JsonElement legs) &&
+                legs.ValueKind == JsonValueKind.Array)
+            {
+                legsCount = legs.GetArrayLength();
+            }
+
+            AppLogger.Info(
+                "OTP",
+                $"Primer itinerario: duration={duration}s ({duration / 60} min), distance={(distance?.ToString("F2") ?? "N/A")}m, legs={legsCount}");
 
             return duration;
         }
@@ -258,7 +268,7 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
                 AgregarNodoSiNoExiste(nodos, ExtraerNodoDePlace(leg, "toPlace"));
             }
 
-            Console.WriteLine($"[OTP] ExtraerRecorrido: {nodos.Count} nodos extraídos.");
+            AppLogger.Debug("OTP", $"Recorrido extraído con {nodos.Count} nodos.");
             return nodos;
         }
 
@@ -267,8 +277,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             string json = await ConsultarAsync(origen, destino);
             return ExtraerDuracion(json);
         }
-
-        // ── MÉTODOS PRIVADOS ─────────────────────────────────────────────────
 
         private static void AgregarNodoSiNoExiste(List<NodoRuta> nodos, NodoRuta? nodo)
         {
