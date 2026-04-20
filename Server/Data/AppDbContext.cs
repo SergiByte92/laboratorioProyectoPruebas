@@ -1,29 +1,39 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Server.Infrastructure;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Server.Data
 {
-    /// <summary>
-    /// Contexto de Entity Framework Core encargado de mapear y gestionar las entidades
-    /// persistidas de la aplicación.
-    /// </summary>
     public class AppDbContext : DbContext
     {
         public DbSet<User> Users { get; set; }
         public DbSet<Group> Groups { get; set; }
         public DbSet<UserGroup> UsersGroups { get; set; }
-        string connectionString;
+
+        private readonly string connectionString;
+
         public AppDbContext(string _connectionString)
         {
             connectionString = _connectionString;
         }
+
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             base.OnConfiguring(optionsBuilder);
 
-            optionsBuilder.UseNpgsql(connectionString);
-            optionsBuilder.LogTo(Console.WriteLine); // funcion estatica log to file guardarla en ficheros
+            optionsBuilder
+                .UseNpgsql(connectionString)
+                .EnableDetailedErrors()
+                .LogTo(
+                    message =>
+                    {
+                        if (!string.IsNullOrWhiteSpace(message))
+                            AppLogger.Debug("EF", message.Trim());
+                    },
+                    new[] { DbLoggerCategory.Database.Command.Name },
+                    Microsoft.Extensions.Logging.LogLevel.Information);
         }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -42,43 +52,42 @@ namespace Server.Data
             public int id { get; set; }
             public string username { get; set; }
             public string email { get; set; }
-            public string password { get; set; } //? o int?
+            public string password { get; set; }
             public DateOnly birth_date { get; set; }
-            public DateTime created_at { get; set; } // no sale??? o no va esta columna????
+            public DateTime created_at { get; set; }
 
-            // Relación con la intermedia
             public List<UserGroup> UserGroups { get; set; } = new();
         }
+
         [Table("group")]
         public class Group
         {
             public int id { get; set; }
             public string code { get; set; }
             public string name { get; set; }
-            public string label { get; set; } // motivo de quedada
-            public string description { get; set; } // descripción si quiere
-            public string method { get; set; } //metodo para averiguar el punto de quedada
-            public double? longitud { get; set; } // Estos datos hasta que no lo calculo no lo se, quizas otra tabla para esto
+            public string label { get; set; }
+            public string description { get; set; }
+            public string method { get; set; }
+            public double? longitud { get; set; }
             public double? latitud { get; set; }
             public string? city { get; set; }
-            public int userId { get; set; }   // FK
-            public User user { get; set; }    // navegación
+            public int userId { get; set; }
+            public User user { get; set; }
 
-            public bool isActive { get; set; } // mientras se une la gente deberia estar activo, una vez que se pasa a calcular el punto optimo, deberia pasar a false
-            public DateTime created_at { get; set; } // añadir detector de luz?
+            public bool isActive { get; set; }
+            public DateTime created_at { get; set; }
 
-            // Relación con la intermedia
             public List<UserGroup> UserGroups { get; set; } = new();
         }
+
         [Table("user_group")]
         [PrimaryKey(nameof(userId), nameof(groupId))]
         public class UserGroup
         {
             public int userId { get; set; }
-            public User user { get; set; } // navegador
+            public User user { get; set; }
             public int groupId { get; set; }
-            public Group group { get; set; } // navegador
+            public Group group { get; set; }
         }
-
     }
 }

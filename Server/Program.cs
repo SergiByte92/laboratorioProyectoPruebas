@@ -5,6 +5,7 @@ using Server.Data;
 using Server.Group;
 using Server.Group.GroupSessions;
 using Server.UserRouting;
+using Server.Infrastructure;
 using System.Net;
 using System.Net.Sockets;
 using static Server.Data.AppDbContext;
@@ -31,13 +32,18 @@ namespace Server
             Exit = 2,
             Start = 3,
             SendLocation = 4,
-            PollResult = 5   // NUEVO: el cliente ya envió su ubicación y pregunta si ya están todos
+            PollResult = 5
         }
 
         public static string connectionString =
-            "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
+            "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
 
         private static readonly GroupSessionManager groupSessionManager = new();
+
+        private static readonly HttpClient otpHttpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(20)
+        };
 
         static void Main(string[] args)
         {
@@ -46,14 +52,13 @@ namespace Server
                 using AppDbContext context = new AppDbContext(connectionString);
                 context.Database.EnsureCreated();
 
-                Console.WriteLine("Base de datos creada/verificada correctamente.");
+                AppLogger.Info("Boot", "Base de datos creada/verificada correctamente.");
                 Thread.Sleep(1000);
                 Console.Clear();
             }
             catch (Exception ex)
             {
-                Console.WriteLine("No ha sido posible crear/verificar la base de datos.");
-                Console.WriteLine(ex);
+                AppLogger.Error("Boot", $"No ha sido posible crear/verificar la base de datos.\n{ex}");
                 Thread.Sleep(1500);
                 Console.Clear();
             }
@@ -64,22 +69,26 @@ namespace Server
             Thread threadServerIdentity = new Thread(ServerIdentity);
             threadServerIdentity.Start();
 
-            Console.WriteLine("Servidores corriendo. Pulsa ENTER para detenerlos.");
+            AppLogger.Info("Boot", "Servidores corriendo. Pulsa ENTER para detenerlos.");
             Console.ReadLine();
         }
 
         static void ServerAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.111.29");
+            IPAddress address = IPAddress.Parse("192.168.1.36");
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             socketServer.Bind(endPoint);
             socketServer.Listen();
 
+            AppLogger.Info("Socket", "ServerAPI escuchando en el puerto 1000.");
+
             while (socketServer.IsBound)
             {
                 Socket socketAccept = socketServer.Accept();
+                AppLogger.Info("Socket", "Cliente aceptado en ServerAPI.");
+
                 Thread threadsServer = new Thread(ServiceAPI);
                 threadsServer.Start(socketAccept);
             }
@@ -90,6 +99,7 @@ namespace Server
             if (o is not Socket socket)
                 return;
 
+            AppLogger.Debug("Socket", "ServiceAPI invocado.");
             // Pendiente
         }
 
@@ -97,20 +107,20 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.111.29");
+                IPAddress address = IPAddress.Parse("192.168.1.36");
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
                 Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                 socketServer.Bind(endPoint);
                 socketServer.Listen();
 
-                Console.WriteLine("Server Identity escuchando en el puerto 1001");
-                Console.WriteLine("Esperando clientes...");
+                AppLogger.Info("Socket", "ServerIdentity escuchando en el puerto 1001.");
+                AppLogger.Info("Socket", "Esperando clientes...");
 
                 while (true)
                 {
                     Socket socketAccept = socketServer.Accept();
-                    Console.WriteLine("Cliente aceptado");
+                    AppLogger.Info("Socket", "Cliente aceptado en ServerIdentity.");
 
                     Thread threadServer = new Thread(() =>
                     {
@@ -122,8 +132,7 @@ namespace Server
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error fatal en ServerIdentity:");
-                Console.WriteLine(ex);
+                AppLogger.Error("Socket", $"Error fatal en ServerIdentity.\n{ex}");
             }
         }
 
@@ -132,8 +141,6 @@ namespace Server
             if (o is not Socket socket)
                 return;
 
-            // Guardamos usuario y código de grupo para poder limpiar en el finally
-            // si el cliente se desconecta abruptamente sin enviar Exit.
             User? currentUser = null;
             string? activeGroupCode = null;
 
@@ -143,14 +150,19 @@ namespace Server
 
                 if (option == (int)MainUser.Login)
                 {
-                    Console.WriteLine("Cliente logeándose...");
+                    AppLogger.Info("Auth", "Cliente logeándose...");
 
                     using AppDbContext context = new AppDbContext(connectionString);
 
                     currentUser = CheckLogin(socket, context);
 
                     if (currentUser is null)
+                    {
+                        AppLogger.Warn("Auth", "Login fallido.");
                         return;
+                    }
+
+                    AppLogger.Info("Auth", $"[User:{currentUser.username}] Login correcto.");
 
                     while (true)
                     {
@@ -165,7 +177,7 @@ namespace Server
 
                                     if (!result.Success)
                                     {
-                                        Console.WriteLine("[WARN] No se pudo crear el grupo.");
+                                        AppLogger.Warn("Lobby", $"[User:{currentUser.username}] No se pudo crear el grupo.");
                                         break;
                                     }
 
@@ -180,10 +192,10 @@ namespace Server
 
                                     activeGroupCode = result.GroupCode;
 
-                                    Console.WriteLine($"[INFO] Grupo creado y sesión activa: {result.GroupCode}");
+                                    AppLogger.Info("Lobby", $"[Group:{result.GroupCode}] [User:{currentUser.username}] Grupo creado y sesión activa.");
 
                                     await LobbyGroup(socket, result.GroupCode, currentUser);
-                                    activeGroupCode = null; // salió correctamente por Exit
+                                    activeGroupCode = null;
                                     return;
                                 }
 
@@ -203,18 +215,19 @@ namespace Server
                                     {
                                         activeGroupCode = groupCode;
 
-                                        Console.WriteLine($"[INFO] Usuario {currentUser.username} unido al grupo {groupCode}");
+                                        AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{currentUser.username}] Usuario unido al grupo.");
                                         await LobbyGroup(socket, groupCode, currentUser);
-                                        activeGroupCode = null; // salió correctamente por Exit
+                                        activeGroupCode = null;
                                         return;
                                     }
 
-                                    Console.WriteLine($"[WARN] Join fallido para grupo {groupCode}");
+                                    AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{currentUser.username}] Join fallido.");
                                     break;
                                 }
 
                             default:
                                 {
+                                    AppLogger.Warn("Lobby", $"[User:{currentUser.username}] Opción de grupo no válida: {groupOption}");
                                     SocketTools.sendBool(socket, false);
                                     break;
                                 }
@@ -223,34 +236,33 @@ namespace Server
                 }
                 else if (option == (int)MainUser.Register)
                 {
-                    Console.WriteLine("Cliente registrándose...");
+                    AppLogger.Info("Auth", "Cliente registrándose...");
 
                     using AppDbContext context = new AppDbContext(connectionString);
                     Register(socket, context);
 
-                    Console.WriteLine("Cliente registrado correctamente");
+                    AppLogger.Info("Auth", "Cliente registrado correctamente.");
                 }
                 else
                 {
-                    Console.WriteLine("Opción no válida recibida");
+                    AppLogger.Warn("Auth", $"Opción principal no válida recibida: {option}");
                     SocketTools.sendBool(socket, false);
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error en ServiceIdentity:");
-                Console.WriteLine(ex);
+                AppLogger.Error("Auth", $"Error en ServiceIdentity.\n{ex}");
 
                 try
                 {
                     SocketTools.sendBool(socket, false);
                 }
-                catch { }
+                catch
+                {
+                }
             }
             finally
             {
-                // CORRECCIÓN: si el cliente se cayó sin enviar Exit, lo eliminamos
-                // de la sesión para que no quede como miembro zombie.
                 if (currentUser != null && activeGroupCode != null)
                 {
                     GroupSession? session = groupSessionManager.Get(activeGroupCode);
@@ -258,12 +270,12 @@ namespace Server
                     if (session != null)
                     {
                         session.RemoveMember(currentUser.id);
-                        Console.WriteLine($"[INFO] Usuario {currentUser.username} eliminado de {activeGroupCode} por desconexión.");
+                        AppLogger.Warn("Lobby", $"[Group:{activeGroupCode}] [User:{currentUser.username}] Usuario eliminado por desconexión.");
 
                         if (session.MemberCount == 0)
                         {
                             groupSessionManager.Remove(activeGroupCode);
-                            Console.WriteLine($"[INFO] Sesión {activeGroupCode} eliminada por quedar vacía.");
+                            AppLogger.Info("Lobby", $"[Group:{activeGroupCode}] Sesión eliminada por quedar vacía.");
                         }
                     }
                 }
@@ -271,6 +283,7 @@ namespace Server
                 socket.Close();
             }
         }
+
         public static User? CheckLogin(Socket socket, AppDbContext context)
         {
             string receiveEmail = SocketTools.receiveString(socket);
@@ -316,7 +329,7 @@ namespace Server
             context.Users.Add(userAdd);
             context.SaveChanges();
 
-            Console.WriteLine($"Usuario {user} registrado correctamente en base de datos");
+            AppLogger.Info("Auth", $"[User:{user}] Usuario registrado correctamente en base de datos.");
         }
 
         static async Task LobbyGroup(Socket socket, string groupCode, User user)
@@ -325,16 +338,14 @@ namespace Server
             {
                 GroupSession? session = groupSessionManager.Get(groupCode);
 
-                // CORRECCIÓN: antes solo se enviaba un int y el cliente se quedaba
-                // esperando el bool de HasStarted → cuelgue. Ahora se envía primero
-                // una señal booleana para indicar si la sesión sigue válida.
                 if (session == null)
                 {
-                    SocketTools.sendBool(socket, false); // señal: sesión inválida
+                    SocketTools.sendBool(socket, false);
+                    AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Sesión inválida.");
                     return;
                 }
 
-                SocketTools.sendBool(socket, true); // señal: sesión válida
+                SocketTools.sendBool(socket, true);
                 SocketTools.sendInt(socket, session.MemberCount);
                 SocketTools.sendBool(socket, session.HasStarted);
 
@@ -343,18 +354,19 @@ namespace Server
                 switch (option)
                 {
                     case (int)LobbyOption.Refresh:
+                        AppLogger.Debug("Lobby", $"[Group:{groupCode}] [User:{user.username}] Refresh lobby.");
                         break;
 
                     case (int)LobbyOption.Exit:
                         {
                             session.RemoveMember(user.id);
 
-                            Console.WriteLine($"[INFO] Usuario {user.username} salió del grupo {groupCode}");
+                            AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] Usuario salió del grupo.");
 
                             if (session.MemberCount == 0)
                             {
                                 groupSessionManager.Remove(groupCode);
-                                Console.WriteLine($"[INFO] Sesión {groupCode} eliminada por quedar vacía.");
+                                AppLogger.Info("Lobby", $"[Group:{groupCode}] Sesión eliminada por quedar vacía.");
                             }
 
                             return;
@@ -364,6 +376,7 @@ namespace Server
                         {
                             if (user.id != session.OwnerUserId)
                             {
+                                AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Intento de start sin ser owner.");
                                 SocketTools.sendBool(socket, false);
                                 break;
                             }
@@ -372,9 +385,9 @@ namespace Server
                             SocketTools.sendBool(socket, started);
 
                             if (!started)
-                                Console.WriteLine($"[WARN] El grupo {groupCode} ya estaba iniciado.");
+                                AppLogger.Warn("Lobby", $"[Group:{groupCode}] El grupo ya estaba iniciado.");
                             else
-                                Console.WriteLine($"[INFO] Grupo {groupCode} iniciado por owner");
+                                AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] Grupo iniciado por owner.");
 
                             break;
                         }
@@ -383,7 +396,7 @@ namespace Server
                         {
                             if (!session.HasStarted)
                             {
-                                Console.WriteLine("[WARN] Se intentó enviar ubicación antes de iniciar el grupo.");
+                                AppLogger.Warn("Location", $"[Group:{groupCode}] [User:{user.username}] Se intentó enviar ubicación antes de iniciar el grupo.");
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendInt(socket, -1);
@@ -395,46 +408,41 @@ namespace Server
 
                             if (!allReceived)
                             {
-                                Console.WriteLine($"[INFO] Aún faltan ubicaciones en el grupo {groupCode}.");
+                                AppLogger.Info("Location", $"[Group:{groupCode}] Aún faltan ubicaciones.");
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendInt(socket, -1);
                                 break;
                             }
 
-                            // Todos han enviado → calculamos y respondemos a este usuario
+                            AppLogger.Info("Location", $"[Group:{groupCode}] Todas las ubicaciones recibidas.");
                             await SendRouteResult(socket, session, user);
                             break;
                         }
 
-                    // NUEVO: el usuario ya envió su ubicación y hace polling
-                    // esperando a que el resto del grupo también la envíe.
                     case (int)LobbyOption.PollResult:
                         {
                             if (!session.AreAllLocationsReceived())
                             {
-                                Console.WriteLine($"[INFO] PollResult: aún faltan ubicaciones en {groupCode}.");
+                                AppLogger.Debug("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: aún faltan ubicaciones.");
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendDouble(socket, 0);
                                 SocketTools.sendInt(socket, -1);
                                 break;
                             }
 
-                            Console.WriteLine($"[INFO] PollResult: todas las ubicaciones listas en {groupCode}.");
+                            AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: todas las ubicaciones listas.");
                             await SendRouteResult(socket, session, user);
                             break;
                         }
 
                     default:
+                        AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Opción de lobby no válida: {option}");
                         break;
                 }
             }
         }
 
-        /// <summary>
-        /// Calcula el centroide, consulta OTP y envía el resultado de ruta al cliente.
-        /// Extraído como método para no duplicar el bloque en SendLocation y PollResult.
-        /// </summary>
         static async Task SendRouteResult(Socket socket, GroupSession session, User user)
         {
             IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
@@ -445,21 +453,20 @@ namespace Server
 
             GeometryUtils.GeographicLocation centroid = GeometryUtils.CalculateCentroid(points);
 
-            Console.WriteLine($"[INFO] Centroide calculado: {centroid.Latitude}, {centroid.Longitude}");
+            AppLogger.Info("Routing", $"[Group:{session.GroupCode}] [User:{user.username}] Centroide calculado: {centroid.Latitude}, {centroid.Longitude}");
 
             try
             {
-                using HttpClient httpClient = new HttpClient();
-                OTP otp = new OTP(httpClient);
+                OTP otp = new OTP(otpHttpClient);
 
                 UserLocation? currentLocation = session.GetLocation(user.id);
 
                 if (currentLocation == null)
                 {
-                    Console.WriteLine("[WARN] No se encontró ubicación del usuario actual.");
+                    AppLogger.Warn("Routing", $"[Group:{session.GroupCode}] [User:{user.username}] No se encontró ubicación del usuario actual.");
                     SocketTools.sendDouble(socket, 0);
                     SocketTools.sendDouble(socket, 0);
-                    SocketTools.sendInt(socket, -1);
+                    SocketTools.sendInt(socket, -2);
                     return;
                 }
 
@@ -471,25 +478,22 @@ namespace Server
 
                 if (duration == null)
                 {
-                    Console.WriteLine($"[INFO] No se encontró ruta para user {user.id}.");
-
+                    AppLogger.Warn("Routing", $"[Group:{session.GroupCode}] [User:{user.username}] Sin ruta disponible.");
                     SocketTools.sendDouble(socket, centroid.Latitude);
                     SocketTools.sendDouble(socket, centroid.Longitude);
-                    SocketTools.sendInt(socket, -1); // sin ruta
+                    SocketTools.sendInt(socket, -3);
                     return;
                 }
 
-                Console.WriteLine($"[INFO] Duración calculada para user {user.id}: {duration.Value}s");
+                AppLogger.Info("Routing", $"[Group:{session.GroupCode}] [User:{user.username}] Duración calculada: {duration.Value}s");
 
                 SocketTools.sendDouble(socket, centroid.Latitude);
                 SocketTools.sendDouble(socket, centroid.Longitude);
                 SocketTools.sendInt(socket, duration.Value);
-
             }
             catch (Exception ex)
             {
-                Console.WriteLine("[ERROR] Fallo al consultar OTP:");
-                Console.WriteLine(ex.Message);
+                AppLogger.Error("OTP", $"[Group:{session.GroupCode}] [User:{user.username}] Fallo al consultar OTP.\n{ex}");
 
                 SocketTools.sendDouble(socket, 0);
                 SocketTools.sendDouble(socket, 0);
