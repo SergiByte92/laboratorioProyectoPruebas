@@ -3,10 +3,6 @@ using System.Text.Json;
 
 namespace Server.API
 {
-    /// <summary>
-    /// Proporciona acceso a los servicios de OpenTripPlanner necesarios para obtener
-    /// información de rutas y desplazamientos entre ubicaciones.
-    /// </summary>
     public sealed class OTP
     {
         // ── CLASES DE DATOS ──────────────────────────────────────────────────
@@ -27,22 +23,6 @@ namespace Server.API
         {
             public string Id { get; set; } = "";
             public string Nombre { get; set; } = "";
-            public double Latitud { get; set; }
-            public double Longitud { get; set; }
-        }
-
-        // ── MODOS DE TRANSPORTE ───────────────────────────────────────────────
-        // Valores válidos para la API Transmodel de OTP2.
-        // Se pueden combinar: ej. { WALK, BUS } significa ir a pie hasta la parada
-        // y luego coger el bus.
-        public static class Modo
-        {
-            public const string APie = "foot";   // a pie (WALK)
-            public const string Bus = "BUS";
-            public const string Metro = "SUBWAY";
-            public const string Tren = "RAIL";
-            public const string Tranvia = "TRAM";
-            public const string Ferry = "FERRY";
         }
 
         // ── CONFIGURACIÓN ────────────────────────────────────────────────────
@@ -50,23 +30,76 @@ namespace Server.API
         private readonly HttpClient _httpClient;
         private const string Url = "http://localhost:8080/otp/transmodel/v3";
 
-        // La query acepta múltiples modos. Si pasas [WALK, BUS] OTP calcula
-        // la ruta combinando ambos (ir a pie hasta parada + coger bus).
+        // Query adaptada al schema REAL que has probado en el explorer.
         private const string Query = @"
-        query trip($from: Location!, $to: Location!, $modes: [TransportModeInput]!) {
-          trip(from: $from, to: $to, transportModes: $modes) {
-            tripPatterns {
-              duration
-              legs {
-                mode
-                duration
-                fromPlace { quay { id name coordinates { latitude longitude } } }
-                toPlace   { quay { id name coordinates { latitude longitude } } }
-                intermediateQuays { id name coordinates { latitude longitude } }
-              }
-            }
+query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
+  trip(dateTime: $dateTime, from: $from, to: $to) {
+    previousPageCursor
+    nextPageCursor
+    tripPatterns {
+      aimedStartTime
+      aimedEndTime
+      expectedEndTime
+      expectedStartTime
+      duration
+      distance
+      generalizedCost
+      legs {
+        id
+        mode
+        aimedStartTime
+        aimedEndTime
+        expectedEndTime
+        expectedStartTime
+        realtime
+        distance
+        duration
+        generalizedCost
+        fromPlace {
+          name
+          quay {
+            id
           }
-        }";
+        }
+        toPlace {
+          name
+          quay {
+            id
+          }
+        }
+        fromEstimatedCall {
+          destinationDisplay {
+            frontText
+          }
+        }
+        line {
+          publicCode
+          name
+          id
+          presentation {
+            colour
+          }
+        }
+        authority {
+          name
+          id
+        }
+        pointsOnLink {
+          points
+        }
+        interchangeTo {
+          staySeated
+        }
+        interchangeFrom {
+          staySeated
+        }
+      }
+      systemNotices {
+        tag
+      }
+    }
+  }
+}";
 
         public OTP(HttpClient httpClient)
         {
@@ -75,35 +108,41 @@ namespace Server.API
 
         // ── MÉTODOS PÚBLICOS ─────────────────────────────────────────────────
 
-        /// <summary>
-        /// Consulta OTP y devuelve el JSON completo de la respuesta.
-        /// modos: array de strings del tipo Modo.* ej. ["foot"] o ["WALK","BUS"]
-        /// </summary>
-        public async Task<string> ConsultarAsync(
-            Coordenada origen,
-            Coordenada destino,
-            params string[] modos)
+        public async Task<string> ConsultarAsync(Coordenada origen, Coordenada destino)
         {
-            Console.WriteLine($"[OTP] Consultando ruta...");
+            Console.WriteLine("[OTP] --------------------------------------------------");
+            Console.WriteLine("[OTP] Consultando ruta...");
             Console.WriteLine($"[OTP]   Origen  : {origen.Latitud}, {origen.Longitud}");
             Console.WriteLine($"[OTP]   Destino : {destino.Latitud}, {destino.Longitud}");
-            Console.WriteLine($"[OTP]   Modos   : {string.Join(", ", modos)}");
-
-            // Construimos el array de modos para la query GraphQL
-            var modesArray = modos.Select(m => new { mode = m }).ToArray();
 
             var bodyObject = new
             {
                 query = Query,
                 variables = new
                 {
-                    from = new { coordinates = new { latitude = origen.Latitud, longitude = origen.Longitud } },
-                    to = new { coordinates = new { latitude = destino.Latitud, longitude = destino.Longitud } },
-                    modes = modesArray
+                    dateTime = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    from = new
+                    {
+                        coordinates = new
+                        {
+                            latitude = origen.Latitud,
+                            longitude = origen.Longitud
+                        }
+                    },
+                    to = new
+                    {
+                        coordinates = new
+                        {
+                            latitude = destino.Latitud,
+                            longitude = destino.Longitud
+                        }
+                    }
                 }
             };
 
             string jsonBody = JsonSerializer.Serialize(bodyObject);
+
+            Console.WriteLine($"[OTP] URL         : {Url}");
             Console.WriteLine($"[OTP] Body enviado: {jsonBody}");
 
             using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
@@ -115,76 +154,107 @@ namespace Server.API
             Console.WriteLine($"[OTP] Respuesta   : {jsonResponse}");
 
             if (!response.IsSuccessStatusCode)
-                throw new Exception($"[OTP] Error HTTP {response.StatusCode}: {jsonResponse}");
+            {
+                throw new Exception($"[OTP] Error HTTP {(int)response.StatusCode} {response.StatusCode}: {jsonResponse}");
+            }
+
+            using JsonDocument doc = JsonDocument.Parse(jsonResponse);
+
+            if (doc.RootElement.TryGetProperty("errors", out JsonElement errors) &&
+                errors.ValueKind == JsonValueKind.Array &&
+                errors.GetArrayLength() > 0)
+            {
+                Console.WriteLine($"[OTP] GraphQL errors detectados: {errors}");
+                throw new Exception($"[OTP] Error GraphQL: {errors}");
+            }
+
+            Console.WriteLine("[OTP] Consulta completada correctamente.");
+            Console.WriteLine("[OTP] --------------------------------------------------");
 
             return jsonResponse;
         }
 
-        /// <summary>
-        /// Extrae la duración en segundos del primer tripPattern.
-        /// Devuelve 0 si OTP no encontró ruta (tripPatterns vacío).
-        /// </summary>
-        public int ExtraerDuracion(string jsonResponse)
+        public int? ExtraerDuracion(string jsonResponse)
         {
             using JsonDocument doc = JsonDocument.Parse(jsonResponse);
 
+            if (doc.RootElement.TryGetProperty("errors", out JsonElement errors) &&
+                errors.ValueKind == JsonValueKind.Array &&
+                errors.GetArrayLength() > 0)
+            {
+                throw new Exception($"[OTP] Error GraphQL al extraer duración: {errors}");
+            }
+
             if (!doc.RootElement.TryGetProperty("data", out JsonElement data))
             {
-                Console.WriteLine("[OTP] ExtraerDuracion: no se encontró 'data' en la respuesta.");
-                return 0;
+                throw new Exception("[OTP] ExtraerDuracion: no se encontró 'data' en la respuesta.");
             }
 
             if (!data.TryGetProperty("trip", out JsonElement trip) ||
                 trip.ValueKind == JsonValueKind.Null)
             {
                 Console.WriteLine("[OTP] ExtraerDuracion: 'trip' es null. OTP no encontró ruta.");
-                return 0;
+                return null;
             }
 
-            var patterns = trip.GetProperty("tripPatterns");
-            int count = patterns.GetArrayLength();
+            if (!trip.TryGetProperty("tripPatterns", out JsonElement patterns) ||
+                patterns.ValueKind != JsonValueKind.Array)
+            {
+                throw new Exception("[OTP] ExtraerDuracion: 'tripPatterns' no existe o no es un array.");
+            }
 
+            int count = patterns.GetArrayLength();
             Console.WriteLine($"[OTP] ExtraerDuracion: tripPatterns encontrados = {count}");
 
             if (count == 0)
             {
-                Console.WriteLine("[OTP] ExtraerDuracion: tripPatterns vacío. Sin ruta disponible para estos parámetros.");
-                return 0;
+                Console.WriteLine("[OTP] ExtraerDuracion: tripPatterns vacío. Sin ruta disponible.");
+                return null;
             }
 
-            int duration = patterns[0].GetProperty("duration").GetInt32();
+            if (!patterns[0].TryGetProperty("duration", out JsonElement durationElement))
+            {
+                throw new Exception("[OTP] ExtraerDuracion: el primer tripPattern no contiene 'duration'.");
+            }
+
+            int duration = durationElement.GetInt32();
             Console.WriteLine($"[OTP] ExtraerDuracion: duración del primer patrón = {duration}s ({duration / 60} min)");
 
             return duration;
         }
 
-        /// <summary>
-        /// Extrae el recorrido completo (lista de nodos/paradas) del primer tripPattern.
-        /// </summary>
         public List<NodoRuta> ExtraerRecorrido(string jsonResponse)
         {
             var nodos = new List<NodoRuta>();
 
             using JsonDocument doc = JsonDocument.Parse(jsonResponse);
 
-            if (!doc.RootElement.TryGetProperty("data", out JsonElement data)) return nodos;
+            if (doc.RootElement.TryGetProperty("errors", out JsonElement errors) &&
+                errors.ValueKind == JsonValueKind.Array &&
+                errors.GetArrayLength() > 0)
+            {
+                throw new Exception($"[OTP] Error GraphQL al extraer recorrido: {errors}");
+            }
 
-            var trip = data.GetProperty("trip");
-            if (trip.ValueKind == JsonValueKind.Null) return nodos;
+            if (!doc.RootElement.TryGetProperty("data", out JsonElement data))
+                return nodos;
 
-            var patterns = trip.GetProperty("tripPatterns");
-            if (patterns.GetArrayLength() == 0) return nodos;
+            if (!data.TryGetProperty("trip", out JsonElement trip) ||
+                trip.ValueKind == JsonValueKind.Null)
+                return nodos;
 
-            foreach (JsonElement leg in patterns[0].GetProperty("legs").EnumerateArray())
+            if (!trip.TryGetProperty("tripPatterns", out JsonElement patterns) ||
+                patterns.ValueKind != JsonValueKind.Array ||
+                patterns.GetArrayLength() == 0)
+                return nodos;
+
+            if (!patterns[0].TryGetProperty("legs", out JsonElement legs) ||
+                legs.ValueKind != JsonValueKind.Array)
+                return nodos;
+
+            foreach (JsonElement leg in legs.EnumerateArray())
             {
                 AgregarNodoSiNoExiste(nodos, ExtraerNodoDePlace(leg, "fromPlace"));
-
-                if (leg.TryGetProperty("intermediateQuays", out JsonElement intermedias))
-                {
-                    foreach (JsonElement quay in intermedias.EnumerateArray())
-                        AgregarNodoSiNoExiste(nodos, ExtraerNodoDeQuay(quay));
-                }
-
                 AgregarNodoSiNoExiste(nodos, ExtraerNodoDePlace(leg, "toPlace"));
             }
 
@@ -192,33 +262,36 @@ namespace Server.API
             return nodos;
         }
 
+        public async Task<int?> ObtenerDuracionAsync(Coordenada origen, Coordenada destino)
+        {
+            string json = await ConsultarAsync(origen, destino);
+            return ExtraerDuracion(json);
+        }
+
         // ── MÉTODOS PRIVADOS ─────────────────────────────────────────────────
 
         private static void AgregarNodoSiNoExiste(List<NodoRuta> nodos, NodoRuta? nodo)
         {
             if (nodo == null) return;
-            if (!nodos.Any(n => !string.IsNullOrWhiteSpace(n.Id) && n.Id == nodo.Id))
+            if (!string.IsNullOrWhiteSpace(nodo.Id) && !nodos.Any(n => n.Id == nodo.Id))
                 nodos.Add(nodo);
         }
 
         private static NodoRuta? ExtraerNodoDePlace(JsonElement leg, string placeKey)
         {
-            if (!leg.TryGetProperty(placeKey, out JsonElement place)) return null;
-            if (!place.TryGetProperty("quay", out JsonElement quay) ||
-                quay.ValueKind == JsonValueKind.Null) return null;
-            return ExtraerNodoDeQuay(quay);
-        }
+            if (!leg.TryGetProperty(placeKey, out JsonElement place))
+                return null;
 
-        private static NodoRuta? ExtraerNodoDeQuay(JsonElement quay)
-        {
             var nodo = new NodoRuta();
-            if (quay.TryGetProperty("id", out JsonElement id)) nodo.Id = id.GetString() ?? "";
-            if (quay.TryGetProperty("name", out JsonElement name)) nodo.Nombre = name.GetString() ?? "";
 
-            if (quay.TryGetProperty("coordinates", out JsonElement coords))
+            if (place.TryGetProperty("name", out JsonElement name))
+                nodo.Nombre = name.GetString() ?? "";
+
+            if (place.TryGetProperty("quay", out JsonElement quay) &&
+                quay.ValueKind != JsonValueKind.Null &&
+                quay.TryGetProperty("id", out JsonElement id))
             {
-                nodo.Latitud = coords.GetProperty("latitude").GetDouble();
-                nodo.Longitud = coords.GetProperty("longitude").GetDouble();
+                nodo.Id = id.GetString() ?? "";
             }
 
             return nodo;

@@ -466,14 +466,25 @@ namespace Server
                 OTP.Coordenada origin = new OTP.Coordenada(currentLocation.Latitude, currentLocation.Longitude);
                 OTP.Coordenada destination = new OTP.Coordenada(centroid.Latitude, centroid.Longitude);
 
-                string jsonResponse = await otp.ConsultarAsync(origin, destination, "foot");
-                int duration = otp.ExtraerDuracion(jsonResponse);
+                string jsonResponse = await otp.ConsultarAsync(origin, destination);
+                int? duration = otp.ExtraerDuracion(jsonResponse);
 
-                Console.WriteLine($"[INFO] Duración calculada para user {user.id}: {duration}s");
+                if (duration == null)
+                {
+                    Console.WriteLine($"[INFO] No se encontró ruta para user {user.id}.");
+
+                    SocketTools.sendDouble(socket, centroid.Latitude);
+                    SocketTools.sendDouble(socket, centroid.Longitude);
+                    SocketTools.sendInt(socket, -1); // sin ruta
+                    return;
+                }
+
+                Console.WriteLine($"[INFO] Duración calculada para user {user.id}: {duration.Value}s");
 
                 SocketTools.sendDouble(socket, centroid.Latitude);
                 SocketTools.sendDouble(socket, centroid.Longitude);
-                SocketTools.sendInt(socket, duration);
+                SocketTools.sendInt(socket, duration.Value);
+
             }
             catch (Exception ex)
             {
