@@ -75,7 +75,7 @@ namespace Server
 
         static void ServerAPI()
         {
-            IPAddress address = IPAddress.Parse("192.168.1.36");
+            IPAddress address = IPAddress.Parse("192.168.1.37");
             IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -107,7 +107,7 @@ namespace Server
         {
             try
             {
-                IPAddress address = IPAddress.Parse("192.168.1.36");
+                IPAddress address = IPAddress.Parse("192.168.1.37");
                 IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
                 Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
