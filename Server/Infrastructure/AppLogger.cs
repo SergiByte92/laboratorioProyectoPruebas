@@ -1,4 +1,7 @@
-﻿namespace Server.Infrastructure
+﻿using System;
+using System.IO;
+
+namespace Server.Infrastructure
 {
     public static class AppLogger
     {
@@ -17,8 +20,32 @@
 
             lock (_lock)
             {
+                // Configurar color según el nivel de log
+                Console.ForegroundColor = level switch
+                {
+                    "INFO" => ConsoleColor.Green,  // Verde para info (éxito/normal)
+                    "WARN" => ConsoleColor.Yellow, // Amarillo para advertencias
+                    "ERROR" => ConsoleColor.Red,    // Rojo para errores críticos
+                    "DEBUG" => ConsoleColor.Gray,   // Gris para depuración (menos distracción)
+                    _ => ConsoleColor.White   // Blanco por defecto
+                };
+
+                // Imprimir en consola con color
                 Console.WriteLine(line);
-                File.AppendAllText(logFilePath, line + Environment.NewLine);
+
+                // IMPORTANTE: Resetear el color para no pintar el resto de la consola
+                Console.ResetColor();
+
+                // Escribir en el archivo (el archivo siempre guarda texto plano, sin colores)
+                try
+                {
+                    File.AppendAllText(logFilePath, line + Environment.NewLine);
+                }
+                catch (Exception ex)
+                {
+                    // Si falla la escritura en archivo, al menos lo vemos en consola
+                    Console.WriteLine($"[CRITICAL] No se pudo escribir en el log: {ex.Message}");
+                }
             }
         }
 

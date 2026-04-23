@@ -20,12 +20,12 @@ namespace Server
             Register = 2
         }
 
-        public enum MainGroup
+        public enum MainMenuOption
         {
             CreateGroup = 1,
             JoinGroup = 2,
-            Home = 3,
-            Profile = 4
+            GetHomeData = 3,
+            GetProfileData = 4
         }
 
         public enum LobbyOption
@@ -44,7 +44,7 @@ namespace Server
 
         private static readonly HttpClient otpHttpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(20)
+            Timeout = TimeSpan.FromSeconds(45)
         };
 
         static void Main(string[] args)
@@ -172,7 +172,7 @@ namespace Server
 
                         switch (groupOption)
                         {
-                            case (int)MainGroup.CreateGroup:
+                            case (int)MainMenuOption.CreateGroup:
                                 {
                                     CreateGroupService createGroupService = new CreateGroupService(context);
                                     var result = await createGroupService.ExecuteAsync(socket, currentUser);
@@ -201,7 +201,7 @@ namespace Server
                                     return;
                                 }
 
-                            case (int)MainGroup.JoinGroup:
+                            case (int)MainMenuOption.JoinGroup:
                                 {
                                     string groupCode = SocketTools.receiveString(socket);
 
@@ -226,7 +226,7 @@ namespace Server
                                     AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{currentUser.username}] Join fallido.");
                                     break;
                                 }
-                            case (int)MainGroup.Home:
+                            case (int)MainMenuOption.GetHomeData:
                                 {
                                     AppLogger.Debug("Nav", $"[User:{currentUser.username}] El usuario está en el Home.");
                                     // Normalmente el Home en el servidor solo confirma que la conexión sigue activa
@@ -235,7 +235,7 @@ namespace Server
                                     break;
                                 }
 
-                            case (int)MainGroup.Profile:
+                            case (int)MainMenuOption.GetProfileData:
                                 {
                                     AppLogger.Info("User", $"[User:{currentUser.username}] Consultando datos de perfil.");
 
