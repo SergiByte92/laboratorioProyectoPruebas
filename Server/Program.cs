@@ -23,7 +23,9 @@ namespace Server
         public enum MainGroup
         {
             CreateGroup = 1,
-            JoinGroup = 2
+            JoinGroup = 2,
+            Home = 3,
+            Profile = 4
         }
 
         public enum LobbyOption
@@ -224,13 +226,41 @@ namespace Server
                                     AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{currentUser.username}] Join fallido.");
                                     break;
                                 }
+                            case (int)MainGroup.Home:
+                                {
+                                    AppLogger.Debug("Nav", $"[User:{currentUser.username}] El usuario está en el Home.");
+                                    // Normalmente el Home en el servidor solo confirma que la conexión sigue activa
+                                    SocketTools.sendString(currentUser.username, socket);
+
+                                    break;
+                                }
+
+                            case (int)MainGroup.Profile:
+                                {
+                                    AppLogger.Info("User", $"[User:{currentUser.username}] Consultando datos de perfil.");
+
+                                    // Enviamos los datos que ya tenemos cargados en 'currentUser'
+                                    SocketTools.sendString(currentUser.username,socket);
+                                    SocketTools.sendString(currentUser.email,socket);
+                                    SocketTools.sendString(currentUser.birth_date.ToString("dd/MM/yyyy"),socket);
+
+                                    //
+
+                                    break;
+                                }
 
                             default:
                                 {
-                                    AppLogger.Warn("Lobby", $"[User:{currentUser.username}] Opción de grupo no válida: {groupOption}");
-                                    SocketTools.sendBool(socket, false);
+                                    // Si llega aquí, es que el cliente envió un número que no es 1, 2, 3 ni 4
+                                    AppLogger.Warn("Protocol", $"[User:{currentUser.username}] Opción no reconocida recibida: {groupOption}");
+
+                                    // Enviamos un false para que el cliente no se quede bloqueado esperando
+                                    //SocketTools.sendBool(socket, false); No lo tengo claro esta linea
                                     break;
                                 }
+                            
+                                
+                               
                         }
                     }
                 }
