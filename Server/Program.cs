@@ -39,7 +39,7 @@ internal class Program
     }
 
     public static string connectionString =
-        "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
+        "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
 
     private static readonly GroupSessionManager groupSessionManager = new();
 
@@ -52,11 +52,22 @@ internal class Program
         Timeout = TimeSpan.FromSeconds(90)
     };
 
-    // ── ELIMINADO: SemaphoreSlim global ──────────────────────────────────────
-    // El control de concurrencia OTP ahora es por GroupSession
-    // mediante TryClaimRouteCalculation + TaskCompletionSource.
-    // Un semáforo global serializaba grupos distintos innecesariamente
-    // (N grupos × 90s = N × 90s de espera en cadena).
+    /// <summary>
+    /// Limita las consultas OTP simultáneas para no saturar Docker.
+    ///
+    /// DISEÑO: Este semáforo controla concurrencia, NO comparte resultados.
+    /// Cada usuario que entra al semáforo ejecuta su PROPIA consulta OTP
+    /// desde su PROPIO origen hasta el centroide común.
+    ///
+    /// Diferencia con el diseño anterior (incorrecto):
+    ///   ANTES: TryClaimRouteCalculation → un usuario consulta OTP y comparte
+    ///          el resultado (duración, distancia, legs) con todos los demás.
+    ///          → Todos recibían la ruta de Sergi aunque fueran Miau1 y Miau2.
+    ///
+    ///   AHORA: SemaphoreSlim(3) → máximo 3 consultas simultáneas, pero cada
+    ///          una es independiente y genera su propio resultado individual.
+    /// </summary>
+    private static readonly SemaphoreSlim _otpSemaphore = new SemaphoreSlim(3, 3);
 
     static void Main(string[] args)
     {
@@ -88,7 +99,7 @@ internal class Program
 
     static void ServerAPI()
     {
-        IPAddress address = IPAddress.Parse("192.168.1.37");
+        IPAddress address = IPAddress.Parse("192.168.111.29");
         IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
         Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -119,7 +130,7 @@ internal class Program
     {
         try
         {
-            IPAddress address = IPAddress.Parse("192.168.1.37");
+            IPAddress address = IPAddress.Parse("192.168.111.29");
             IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -433,8 +444,6 @@ internal class Program
                         {
                             AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Intento de start sin ser owner.");
                             SocketTools.sendBool(socket, false);
-                            // El bucle continúa: en la siguiente iteración se enviará
-                            // la cabecera y el cliente la leerá normalmente.
                             break;
                         }
 
@@ -446,8 +455,6 @@ internal class Program
                         else
                             AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] Grupo iniciado por owner.");
 
-                        // El bucle continúa: el cliente leerá la cabecera y luego
-                        // enviará SendLocation o seguirá haciendo Refresh.
                         break;
                     }
 
@@ -465,12 +472,12 @@ internal class Program
 
                         if (!allReceived)
                         {
-                            AppLogger.Info("Location", $"[Group:{groupCode}] Aún faltan ubicaciones.");
+                            AppLogger.Info("Location", $"[Group:{groupCode}] [User:{user.username}] Ubicación registrada. Aún faltan ubicaciones de otros miembros.");
                             SendPendingResult(socket);
                             break;
                         }
 
-                        AppLogger.Info("Location", $"[Group:{groupCode}] Todas las ubicaciones recibidas.");
+                        AppLogger.Info("Location", $"[Group:{groupCode}] Todas las ubicaciones recibidas. Calculando ruta individual para [User:{user.username}].");
                         await SendRouteResult(socket, session, user);
                         return;
                     }
@@ -484,7 +491,7 @@ internal class Program
                             break;
                         }
 
-                        AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: todas las ubicaciones listas.");
+                        AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: todas las ubicaciones listas. Calculando ruta individual.");
                         await SendRouteResult(socket, session, user);
                         return;
                     }
@@ -543,14 +550,25 @@ internal class Program
     }
 
     /// <summary>
-    /// Calcula y envía el resultado de ruta al cliente.
+    /// Calcula y envía el resultado de ruta individual al cliente.
     ///
-    /// CAMBIO CLAVE: usa TryClaimRouteCalculation para garantizar que solo
-    /// UN usuario por grupo consulte OTP. El resto espera el mismo Task.
-    /// Esto evita N consultas OTP serializadas (antes: N × 90s).
+    /// DISEÑO CORRECTO:
+    ///   - El centroide es COMÚN (calculado de todas las ubicaciones del grupo).
+    ///   - La ruta OTP es INDIVIDUAL: cada usuario consulta desde su propio
+    ///     origen hasta el centroide compartido.
+    ///   - El SemaphoreSlim limita concurrencia sin compartir resultados:
+    ///     cada consulta que entra al semáforo genera su propio MeetingRouteResult.
+    ///
+    /// DIFERENCIA CON EL DISEÑO ANTERIOR (incorrecto):
+    ///   El diseño anterior usaba TryClaimRouteCalculation para que solo un usuario
+    ///   consultara OTP y el resto esperara su Task. Esto provocaba que Sergi,
+    ///   Miau1 y Miau2 recibieran la misma duración, distancia y legs porque
+    ///   compartían el resultado del primero en ejecutar la consulta.
     /// </summary>
     static async Task SendRouteResult(Socket socket, GroupSession session, User user)
     {
+        // ── 1. Calcular centroide (idéntico para todos los usuarios del grupo) ─
+
         IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
 
         List<GeometryUtils.GeographicLocation> points = locations
@@ -561,7 +579,10 @@ internal class Program
 
         AppLogger.Info(
             "Routing",
-            $"[Group:{session.GroupCode}] Centroide: {centroid.Latitude:F6}, {centroid.Longitude:F6}");
+            $"[Group:{session.GroupCode}] [User:{user.username}] " +
+            $"Centroide: {centroid.Latitude:F6}, {centroid.Longitude:F6}");
+
+        // ── 2. Obtener ubicación propia del usuario ────────────────────────────
 
         UserLocation? currentLocation = session.GetLocation(user.id);
 
@@ -573,57 +594,44 @@ internal class Program
             return;
         }
 
+        // ── 3. Consultar OTP de forma individual ──────────────────────────────
+
         MeetingRouteResult? route;
 
         try
         {
-            if (session.TryClaimRouteCalculation(out Task<MeetingRouteResult?> resultTask))
+            AppLogger.Info("Routing",
+                $"[User:{user.username}] Ejecutando consulta OTP individual.");
+
+            // El semáforo limita la concurrencia para no saturar OTP en Docker,
+            // pero NO comparte resultados entre usuarios.
+            await _otpSemaphore.WaitAsync();
+
+            try
             {
-                // Este usuario es el responsable de consultar OTP para el grupo.
-                AppLogger.Info("Routing",
-                    $"[Group:{session.GroupCode}] [User:{user.username}] Ejecutando consulta OTP (único cálculo por grupo).");
+                OTP otp = new OTP(otpHttpClient);
 
-                try
-                {
-                    OTP otp = new OTP(otpHttpClient);
+                OTP.Coordenada origin = new OTP.Coordenada(
+                    currentLocation.Latitude,
+                    currentLocation.Longitude);
 
-                    OTP.Coordenada origin = new OTP.Coordenada(
-                        currentLocation.Latitude,
-                        currentLocation.Longitude);
+                OTP.Coordenada destination = new OTP.Coordenada(
+                    centroid.Latitude,
+                    centroid.Longitude);
 
-                    OTP.Coordenada destination = new OTP.Coordenada(
-                        centroid.Latitude,
-                        centroid.Longitude);
+                AppLogger.Info("OTP",
+                    $"[User:{user.username}] Consultando ruta " +
+                    $"origen={currentLocation.Latitude:F6},{currentLocation.Longitude:F6} " +
+                    $"destino={centroid.Latitude:F6},{centroid.Longitude:F6}");
 
-                    string jsonResponse = await otp.ConsultarAsync(origin, destination);
-                    route = otp.ExtraerResultadoRuta(jsonResponse);
-
-                    // Publica el resultado para todos los usuarios que estén esperando.
-                    session.SetRouteResult(route);
-                }
-                catch (Exception ex)
-                {
-                    // Propaga el error a todos los waiters antes de relanzar.
-                    session.SetRouteError(ex);
-                    throw;
-                }
+                string jsonResponse = await otp.ConsultarAsync(origin, destination);
+                route = otp.ExtraerResultadoRuta(jsonResponse);
             }
-            else
+            finally
             {
-                // Otro usuario ya está calculando. Esperamos su resultado.
-                AppLogger.Info("Routing",
-                    $"[Group:{session.GroupCode}] [User:{user.username}] Esperando resultado OTP de otro usuario...");
-
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-                route = await resultTask.WaitAsync(cts.Token);
+                // Siempre liberar el semáforo, aunque haya excepción.
+                _otpSemaphore.Release();
             }
-        }
-        catch (TaskCanceledException ex)
-        {
-            AppLogger.Warn("OTP",
-                $"[Group:{session.GroupCode}] [User:{user.username}] Timeout esperando OTP.\n{ex.Message}");
-            SendErrorResult(socket, -2, "OTP tardó demasiado en calcular la ruta.");
-            return;
         }
         catch (Exception ex)
         {
@@ -633,7 +641,7 @@ internal class Program
             return;
         }
 
-        // ── Construir y enviar el payload ─────────────────────────────────────
+        // ── 4. Construir y enviar el payload individual ───────────────────────
 
         if (route == null)
         {
@@ -663,7 +671,9 @@ internal class Program
 
         AppLogger.Info("Routing",
             $"[Group:{session.GroupCode}] [User:{user.username}] " +
-            $"Duración={route.DurationSeconds}s, Distancia={route.DistanceMeters:F2}m, Transbordos={route.TransferCount}");
+            $"Ruta individual: Duración={route.DurationSeconds}s ({route.DurationSeconds / 60} min), " +
+            $"Distancia={route.DistanceMeters:F2}m, Transbordos={route.TransferCount}, " +
+            $"Legs={route.Legs.Count}");
 
         var payload = new MeetingResultTransportModel
         {
