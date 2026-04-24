@@ -45,20 +45,18 @@ internal class Program
 
     /// <summary>
     /// HttpClient compartido para consultar OTP.
-    /// Subimos timeout a 90s porque OTP en Docker/local puede tardar bastante,
-    /// sobre todo con grafo frío o rutas complicadas.
+    /// Timeout generoso porque OTP local en Docker puede tardar con grafo frío.
     /// </summary>
     private static readonly HttpClient otpHttpClient = new HttpClient
     {
         Timeout = TimeSpan.FromSeconds(90)
     };
 
-    /// <summary>
-    /// Evita lanzar varias consultas OTP simultáneas.
-    /// OTP local en Docker puede saturarse si dos usuarios consultan ruta a la vez.
-    /// Con este semáforo procesamos una consulta cada vez.
-    /// </summary>
-    private static readonly SemaphoreSlim otpSemaphore = new(1, 1);
+    // ── ELIMINADO: SemaphoreSlim global ──────────────────────────────────────
+    // El control de concurrencia OTP ahora es por GroupSession
+    // mediante TryClaimRouteCalculation + TaskCompletionSource.
+    // Un semáforo global serializaba grupos distintos innecesariamente
+    // (N grupos × 90s = N × 90s de espera en cadena).
 
     static void Main(string[] args)
     {
@@ -259,7 +257,7 @@ internal class Program
 
                         default:
                             {
-                                AppLogger.Warn("Protocol", $"[User:{currentUser.username}] Opción no reconocida recibida: {groupOption}");
+                                AppLogger.Warn("Protocol", $"[User:{currentUser.username}] Opción no reconocida: {groupOption}");
                                 break;
                             }
                     }
@@ -382,10 +380,13 @@ internal class Program
 
             /*
              * Cabecera estándar del lobby.
-             * El cliente debe leer siempre:
-             * - bool sessionValid
-             * - int memberCount
-             * - bool hasStarted
+             * El cliente SIEMPRE debe leer:
+             *   bool sessionValid
+             *   int  memberCount
+             *   bool hasStarted
+             *
+             * Esto se envía en CADA iteración del bucle, antes de esperar
+             * la siguiente opción del cliente.
              */
             SocketTools.sendBool(socket, true);
             SocketTools.sendInt(socket, session.MemberCount);
@@ -432,6 +433,8 @@ internal class Program
                         {
                             AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Intento de start sin ser owner.");
                             SocketTools.sendBool(socket, false);
+                            // El bucle continúa: en la siguiente iteración se enviará
+                            // la cabecera y el cliente la leerá normalmente.
                             break;
                         }
 
@@ -443,6 +446,8 @@ internal class Program
                         else
                             AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] Grupo iniciado por owner.");
 
+                        // El bucle continúa: el cliente leerá la cabecera y luego
+                        // enviará SendLocation o seguirá haciendo Refresh.
                         break;
                     }
 
@@ -450,7 +455,7 @@ internal class Program
                     {
                         if (!session.HasStarted)
                         {
-                            AppLogger.Warn("Location", $"[Group:{groupCode}] [User:{user.username}] Se intentó enviar ubicación antes de iniciar el grupo.");
+                            AppLogger.Warn("Location", $"[Group:{groupCode}] [User:{user.username}] Ubicación enviada antes de iniciar el grupo.");
                             SendErrorResult(socket, -2, "El grupo aún no se ha iniciado.");
                             break;
                         }
@@ -467,10 +472,6 @@ internal class Program
 
                         AppLogger.Info("Location", $"[Group:{groupCode}] Todas las ubicaciones recibidas.");
                         await SendRouteResult(socket, session, user);
-
-                        /*
-                         * Resultado final enviado. No seguimos esperando comandos de lobby.
-                         */
                         return;
                     }
 
@@ -478,17 +479,13 @@ internal class Program
                     {
                         if (!session.AreAllLocationsReceived())
                         {
-                            AppLogger.Debug("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: aún faltan ubicaciones.");
+                            AppLogger.Debug("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: faltan ubicaciones.");
                             SendPendingResult(socket);
                             break;
                         }
 
                         AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: todas las ubicaciones listas.");
                         await SendRouteResult(socket, session, user);
-
-                        /*
-                         * Resultado final enviado. No seguimos esperando comandos de lobby.
-                         */
                         return;
                     }
 
@@ -545,6 +542,13 @@ internal class Program
         SocketTools.sendString(JsonSerializer.Serialize(payload), socket);
     }
 
+    /// <summary>
+    /// Calcula y envía el resultado de ruta al cliente.
+    ///
+    /// CAMBIO CLAVE: usa TryClaimRouteCalculation para garantizar que solo
+    /// UN usuario por grupo consulte OTP. El resto espera el mismo Task.
+    /// Esto evita N consultas OTP serializadas (antes: N × 90s).
+    /// </summary>
     static async Task SendRouteResult(Socket socket, GroupSession session, User user)
     {
         IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
@@ -557,117 +561,129 @@ internal class Program
 
         AppLogger.Info(
             "Routing",
-            $"[Group:{session.GroupCode}] [User:{user.username}] Centroide calculado: {centroid.Latitude}, {centroid.Longitude}");
+            $"[Group:{session.GroupCode}] Centroide: {centroid.Latitude:F6}, {centroid.Longitude:F6}");
+
+        UserLocation? currentLocation = session.GetLocation(user.id);
+
+        if (currentLocation == null)
+        {
+            AppLogger.Warn("Routing",
+                $"[Group:{session.GroupCode}] [User:{user.username}] No se encontró la ubicación del usuario.");
+            SendErrorResult(socket, -2, "No se encontró la ubicación del usuario actual.");
+            return;
+        }
+
+        MeetingRouteResult? route;
 
         try
         {
-            OTP otp = new OTP(otpHttpClient);
-
-            UserLocation? currentLocation = session.GetLocation(user.id);
-
-            if (currentLocation == null)
+            if (session.TryClaimRouteCalculation(out Task<MeetingRouteResult?> resultTask))
             {
-                AppLogger.Warn(
-                    "Routing",
-                    $"[Group:{session.GroupCode}] [User:{user.username}] No se encontró ubicación del usuario actual.");
+                // Este usuario es el responsable de consultar OTP para el grupo.
+                AppLogger.Info("Routing",
+                    $"[Group:{session.GroupCode}] [User:{user.username}] Ejecutando consulta OTP (único cálculo por grupo).");
 
-                SendErrorResult(socket, -2, "No se encontró la ubicación del usuario actual.");
-                return;
-            }
-
-            OTP.Coordenada origin = new OTP.Coordenada(
-                currentLocation.Latitude,
-                currentLocation.Longitude);
-
-            OTP.Coordenada destination = new OTP.Coordenada(
-                centroid.Latitude,
-                centroid.Longitude);
-
-            /*
-             * Bloque crítico:
-             * solo permitimos una consulta OTP simultánea.
-             */
-            MeetingRouteResult? route;
-
-            await otpSemaphore.WaitAsync();
-
-            try
-            {
-                string jsonResponse = await otp.ConsultarAsync(origin, destination);
-                route = otp.ExtraerResultadoRuta(jsonResponse);
-            }
-            finally
-            {
-                otpSemaphore.Release();
-            }
-
-            if (route == null)
-            {
-                AppLogger.Warn(
-                    "Routing",
-                    $"[Group:{session.GroupCode}] [User:{user.username}] Sin ruta disponible.");
-
-                var noRoutePayload = new MeetingResultTransportModel
+                try
                 {
-                    Latitude = centroid.Latitude,
-                    Longitude = centroid.Longitude,
-                    OriginLatitude = currentLocation.Latitude,
-                    OriginLongitude = currentLocation.Longitude,
-                    DurationSeconds = -3,
-                    DistanceMeters = 0,
-                    TransferCount = 0,
-                    HasValidRoute = false,
-                    MeetingPointName = "Punto de encuentro",
-                    AddressText = "No se encontró una ruta válida",
-                    DistanceText = "Distancia no disponible",
-                    FairnessText = "Centroide calculado, pero sin ruta disponible",
-                    Legs = new List<RouteLegDto>()
-                };
+                    OTP otp = new OTP(otpHttpClient);
 
-                SocketTools.sendString(JsonSerializer.Serialize(noRoutePayload), socket);
-                return;
+                    OTP.Coordenada origin = new OTP.Coordenada(
+                        currentLocation.Latitude,
+                        currentLocation.Longitude);
+
+                    OTP.Coordenada destination = new OTP.Coordenada(
+                        centroid.Latitude,
+                        centroid.Longitude);
+
+                    string jsonResponse = await otp.ConsultarAsync(origin, destination);
+                    route = otp.ExtraerResultadoRuta(jsonResponse);
+
+                    // Publica el resultado para todos los usuarios que estén esperando.
+                    session.SetRouteResult(route);
+                }
+                catch (Exception ex)
+                {
+                    // Propaga el error a todos los waiters antes de relanzar.
+                    session.SetRouteError(ex);
+                    throw;
+                }
             }
+            else
+            {
+                // Otro usuario ya está calculando. Esperamos su resultado.
+                AppLogger.Info("Routing",
+                    $"[Group:{session.GroupCode}] [User:{user.username}] Esperando resultado OTP de otro usuario...");
 
-            AppLogger.Info(
-                "Routing",
-                $"[Group:{session.GroupCode}] [User:{user.username}] Duración calculada: {route.DurationSeconds}s, distancia={route.DistanceMeters:F2}m, transbordos={route.TransferCount}");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+                route = await resultTask.WaitAsync(cts.Token);
+            }
+        }
+        catch (TaskCanceledException ex)
+        {
+            AppLogger.Warn("OTP",
+                $"[Group:{session.GroupCode}] [User:{user.username}] Timeout esperando OTP.\n{ex.Message}");
+            SendErrorResult(socket, -2, "OTP tardó demasiado en calcular la ruta.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("OTP",
+                $"[Group:{session.GroupCode}] [User:{user.username}] Error consultando OTP.\n{ex}");
+            SendErrorResult(socket, -2, "Error calculando la ruta en el servidor.");
+            return;
+        }
 
-            var payload = new MeetingResultTransportModel
+        // ── Construir y enviar el payload ─────────────────────────────────────
+
+        if (route == null)
+        {
+            AppLogger.Warn("Routing",
+                $"[Group:{session.GroupCode}] [User:{user.username}] Sin ruta disponible (OTP no encontró itinerario).");
+
+            var noRoutePayload = new MeetingResultTransportModel
             {
                 Latitude = centroid.Latitude,
                 Longitude = centroid.Longitude,
                 OriginLatitude = currentLocation.Latitude,
                 OriginLongitude = currentLocation.Longitude,
-                DurationSeconds = route.DurationSeconds,
-                DistanceMeters = route.DistanceMeters,
-                TransferCount = route.TransferCount,
-                HasValidRoute = true,
+                DurationSeconds = -3,
+                DistanceMeters = 0,
+                TransferCount = 0,
+                HasValidRoute = false,
                 MeetingPointName = "Punto de encuentro",
-                AddressText = "Ruta calculada correctamente",
-                DistanceText = $"{route.DistanceMeters / 1000:0.0} km",
-                FairnessText = route.TransferCount == 0
-                    ? "Ruta directa sin transbordos"
-                    : $"Ruta con {route.TransferCount} transbordo{(route.TransferCount == 1 ? "" : "s")}",
-                Legs = route.Legs
+                AddressText = "No se encontró una ruta válida",
+                DistanceText = "Distancia no disponible",
+                FairnessText = "Centroide calculado, pero sin ruta disponible",
+                Legs = new List<RouteLegDto>()
             };
 
-            SocketTools.sendString(JsonSerializer.Serialize(payload), socket);
+            SocketTools.sendString(JsonSerializer.Serialize(noRoutePayload), socket);
+            return;
         }
-        catch (TaskCanceledException ex)
-        {
-            AppLogger.Warn(
-                "OTP",
-                $"[Group:{session.GroupCode}] [User:{user.username}] Timeout consultando OTP.\n{ex.Message}");
 
-            SendErrorResult(socket, -2, "OTP tardó demasiado en calcular la ruta.");
-        }
-        catch (Exception ex)
-        {
-            AppLogger.Error(
-                "OTP",
-                $"[Group:{session.GroupCode}] [User:{user.username}] Fallo al consultar OTP.\n{ex}");
+        AppLogger.Info("Routing",
+            $"[Group:{session.GroupCode}] [User:{user.username}] " +
+            $"Duración={route.DurationSeconds}s, Distancia={route.DistanceMeters:F2}m, Transbordos={route.TransferCount}");
 
-            SendErrorResult(socket, -2, "Error calculando la ruta en el servidor.");
-        }
+        var payload = new MeetingResultTransportModel
+        {
+            Latitude = centroid.Latitude,
+            Longitude = centroid.Longitude,
+            OriginLatitude = currentLocation.Latitude,
+            OriginLongitude = currentLocation.Longitude,
+            DurationSeconds = route.DurationSeconds,
+            DistanceMeters = route.DistanceMeters,
+            TransferCount = route.TransferCount,
+            HasValidRoute = true,
+            MeetingPointName = "Punto de encuentro",
+            AddressText = "Ruta calculada correctamente",
+            DistanceText = $"{route.DistanceMeters / 1000:0.0} km",
+            FairnessText = route.TransferCount == 0
+                ? "Ruta directa sin transbordos"
+                : $"Ruta con {route.TransferCount} transbordo{(route.TransferCount == 1 ? "" : "s")}",
+            Legs = route.Legs
+        };
+
+        SocketTools.sendString(JsonSerializer.Serialize(payload), socket);
     }
 }

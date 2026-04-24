@@ -6,18 +6,22 @@ namespace Server.API;
 
 /// <summary>
 /// Cliente de integración con OpenTripPlanner.
-/// 
+///
 /// Responsabilidades:
 /// - Construir la query GraphQL.
 /// - Enviar la petición HTTP.
 /// - Validar errores HTTP y GraphQL.
 /// - Parsear duración, distancia, legs, líneas y transbordos.
+///
+/// CAMBIO: GetQueryDateTime evita que OTP devuelva tripPatterns vacío
+/// cuando la consulta llega fuera del horario de servicio de transporte
+/// (p.ej. de madrugada). En ese caso, avanza la hora de consulta al día
+/// siguiente a las 09:00 para obtener siempre un itinerario real.
 /// </summary>
 public sealed class OTP
 {
     /// <summary>
     /// Coordenada geográfica simple.
-    /// Se usa para origen y destino.
     /// </summary>
     public sealed class Coordenada
     {
@@ -38,19 +42,6 @@ public sealed class OTP
     /// </summary>
     private const string Url = "http://localhost:8080/otp/transmodel/v3";
 
-    /// <summary>
-    /// Query GraphQL.
-    /// 
-    /// Pedimos:
-    /// - duración total
-    /// - distancia total
-    /// - legs
-    /// - modo de transporte
-    /// - línea
-    /// - paradas
-    /// - headsign
-    /// - geometría codificada
-    /// </summary>
     private const string Query = @"
 query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
   trip(dateTime: $dateTime, from: $from, to: $to) {
@@ -126,25 +117,26 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
 
     /// <summary>
     /// Consulta OTP y devuelve el JSON crudo.
-    /// 
-    /// Este método no transforma la ruta.
-    /// Solo hace:
-    /// - POST HTTP
-    /// - validación de status code
-    /// - validación de errores GraphQL
+    ///
+    /// Usa GetQueryDateTime() en lugar de DateTime.UtcNow para evitar
+    /// recibir tripPatterns vacío durante horario nocturno sin servicio.
     /// </summary>
     public async Task<string> ConsultarAsync(Coordenada origen, Coordenada destino)
     {
+        string queryDateTime = GetQueryDateTime();
+
         AppLogger.Info(
             "OTP",
-            $"Consultando ruta origen={origen.Latitud:F6},{origen.Longitud:F6} destino={destino.Latitud:F6},{destino.Longitud:F6}");
+            $"Consultando ruta origen={origen.Latitud:F6},{origen.Longitud:F6} " +
+            $"destino={destino.Latitud:F6},{destino.Longitud:F6} " +
+            $"dateTime={queryDateTime}");
 
         var bodyObject = new
         {
             query = Query,
             variables = new
             {
-                dateTime = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                dateTime = queryDateTime,
                 from = new
                 {
                     coordinates = new
@@ -176,7 +168,7 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         if (!response.IsSuccessStatusCode)
         {
             AppLogger.Error("OTP", $"Error HTTP {(int)response.StatusCode} {response.StatusCode}");
-            throw new Exception($"[OTP] Error HTTP {(int)response.StatusCode} {response.StatusCode}: {jsonResponse}");
+            throw new Exception($"[OTP] Error HTTP {(int)response.StatusCode}: {jsonResponse}");
         }
 
         using JsonDocument doc = JsonDocument.Parse(jsonResponse);
@@ -194,11 +186,8 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
     }
 
     /// <summary>
-    /// Método de compatibilidad.
-    /// 
-    /// Si alguna parte antigua del servidor sigue esperando solo duración,
-    /// este método permite mantenerla sin romper todo.
-    /// Internamente usa el parser nuevo.
+    /// Método de compatibilidad: devuelve solo la duración.
+    /// Internamente usa el parser completo.
     /// </summary>
     public int? ExtraerDuracion(string jsonResponse)
     {
@@ -208,7 +197,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
 
     /// <summary>
     /// Parser principal.
-    /// 
     /// Extrae el primer itinerario de OTP y lo convierte a MeetingRouteResult.
     /// Devuelve null cuando OTP responde bien pero no encuentra ruta.
     /// </summary>
@@ -271,7 +259,8 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
 
         AppLogger.Info(
             "OTP",
-            $"Primer itinerario: duration={duration}s ({duration / 60} min), distance={distance:F2}m, legs={legs.Count}, transfers={transferCount}");
+            $"Primer itinerario: duration={duration}s ({duration / 60} min), " +
+            $"distance={distance:F2}m, legs={legs.Count}, transfers={transferCount}");
 
         return new MeetingRouteResult
         {
@@ -282,25 +271,13 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         };
     }
 
-    /// <summary>
-    /// Convierte un leg de OTP en un DTO propio.
-    /// 
-    /// Aquí se centraliza la lectura de:
-    /// - modo
-    /// - origen/destino
-    /// - duración
-    /// - distancia
-    /// - línea
-    /// - dirección
-    /// - geometría
-    /// </summary>
+    // ── Helpers de parseo ─────────────────────────────────────────────────────
+
     private static RouteLegDto ParseLeg(JsonElement leg)
     {
         string mode = ReadString(leg, "mode");
-
         int duration = ReadInt(leg, "duration");
         double distance = ReadDouble(leg, "distance");
-
         string fromName = ReadPlaceName(leg, "fromPlace");
         string toName = ReadPlaceName(leg, "toPlace");
 
@@ -346,10 +323,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         };
     }
 
-    /// <summary>
-    /// Lee un string obligatorio de forma segura.
-    /// Si no existe, devuelve string.Empty.
-    /// </summary>
     private static string ReadString(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out JsonElement value) &&
@@ -358,10 +331,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : string.Empty;
     }
 
-    /// <summary>
-    /// Lee un string opcional.
-    /// Si no existe o es null, devuelve null.
-    /// </summary>
     private static string? ReadNullableString(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out JsonElement value) &&
@@ -370,10 +339,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : null;
     }
 
-    /// <summary>
-    /// Lee un entero de forma segura.
-    /// Si no existe, devuelve 0.
-    /// </summary>
     private static int ReadInt(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out JsonElement value) &&
@@ -382,10 +347,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : 0;
     }
 
-    /// <summary>
-    /// Lee un double de forma segura.
-    /// Si no existe, devuelve 0.
-    /// </summary>
     private static double ReadDouble(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out JsonElement value) &&
@@ -394,9 +355,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : 0;
     }
 
-    /// <summary>
-    /// Lee el name de fromPlace o toPlace.
-    /// </summary>
     private static string ReadPlaceName(JsonElement leg, string placeProperty)
     {
         if (!leg.TryGetProperty(placeProperty, out JsonElement place) ||
@@ -406,5 +364,73 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         }
 
         return ReadString(place, "name");
+    }
+
+    // ── Fecha/hora para la consulta ───────────────────────────────────────────
+
+    /// <summary>
+    /// Calcula la fecha y hora que se enviará a OTP.
+    ///
+    /// Problema: si la consulta llega entre las 00:00 y las 06:00 (hora de
+    /// Barcelona), OTP devuelve tripPatterns vacío porque no hay servicio
+    /// nocturno en la mayoría de líneas. Esto no es un error técnico, pero
+    /// el resultado parece un fallo desde el punto de vista del usuario.
+    ///
+    /// Solución: si estamos en franja nocturna (00:00–05:59 hora local),
+    /// avanzamos la hora de consulta al día siguiente a las 09:00, que
+    /// garantiza servicio completo de transporte público.
+    ///
+    /// El ID de zona horaria se intenta en el orden:
+    ///   1. "Europe/Madrid"       → Linux / macOS
+    ///   2. "Romance Standard Time" → Windows (alias de Europe/Madrid en CLDR)
+    ///   3. Offset fijo UTC+1     → fallback si ninguno de los anteriores existe
+    /// </summary>
+    private static string GetQueryDateTime()
+    {
+        DateTime utcNow = DateTime.UtcNow;
+
+        TimeZoneInfo zone = ResolveBarcelonaTimeZone();
+        DateTime localNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, zone);
+
+        AppLogger.Debug("OTP", $"Hora local Barcelona para consulta: {localNow:HH:mm:ss}");
+
+        bool isNightHours = localNow.Hour < 6;
+
+        DateTime queryLocal = isNightHours
+            ? localNow.Date.AddDays(1).AddHours(9)  // mañana a las 09:00
+            : localNow;
+
+        if (isNightHours)
+        {
+            AppLogger.Info("OTP",
+                $"Franja nocturna detectada ({localNow:HH:mm}). " +
+                $"Consultando OTP con fecha futura: {queryLocal:yyyy-MM-dd HH:mm}");
+        }
+
+        DateTime queryUtc = TimeZoneInfo.ConvertTimeToUtc(queryLocal, zone);
+        return queryUtc.ToString("yyyy-MM-ddTHH:mm:ssZ");
+    }
+
+    /// <summary>
+    /// Resuelve la zona horaria de Barcelona con fallback progresivo.
+    /// Necesario porque el ID varía entre Linux/macOS y Windows.
+    /// </summary>
+    private static TimeZoneInfo ResolveBarcelonaTimeZone()
+    {
+        // Linux / macOS
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Europe/Madrid"); }
+        catch { /* continúa */ }
+
+        // Windows
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Romance Standard Time"); }
+        catch { /* continúa */ }
+
+        // Fallback: UTC+1 fijo (sin ajuste de verano, pero válido para desarrollo)
+        AppLogger.Warn("OTP", "No se pudo resolver la zona horaria de Barcelona. Usando UTC+1 fijo.");
+        return TimeZoneInfo.CreateCustomTimeZone(
+            "CET-Fallback",
+            TimeSpan.FromHours(1),
+            "CET Fallback",
+            "CET Fallback");
     }
 }
