@@ -39,35 +39,37 @@ internal class Program
     }
 
     public static string connectionString =
-        "Host=localhost;Port=5432;Database=SGSDatabase;Username=Alumno;Password=AlumnoIFP";
+        "Host=localhost;Port=5432;Database=SGSDatabase;Username=postgres;Password=postgres123";
 
     private static readonly GroupSessionManager groupSessionManager = new();
 
     /// <summary>
-    /// HttpClient compartido para consultar OTP.
-    /// Timeout generoso porque OTP local en Docker puede tardar con grafo frío.
+    /// HttpClient compartido para consultar OpenTripPlanner.
+    ///
+    /// Se reutiliza para evitar crear conexiones HTTP nuevas constantemente.
+    /// Timeout aumentado porque OTP en Docker puede tardar bastante si:
+    /// - el grafo está frío,
+    /// - la ruta es compleja,
+    /// - hay varias consultas,
+    /// - el PC está saturado.
     /// </summary>
     private static readonly HttpClient otpHttpClient = new HttpClient
     {
-        Timeout = TimeSpan.FromSeconds(90)
+        Timeout = TimeSpan.FromSeconds(180)
     };
 
     /// <summary>
-    /// Limita las consultas OTP simultáneas para no saturar Docker.
+    /// Limita cuántas consultas OTP se ejecutan al mismo tiempo.
     ///
-    /// DISEÑO: Este semáforo controla concurrencia, NO comparte resultados.
-    /// Cada usuario que entra al semáforo ejecuta su PROPIA consulta OTP
-    /// desde su PROPIO origen hasta el centroide común.
+    /// IMPORTANTE:
+    /// - NO comparte resultados entre usuarios.
+    /// - Cada usuario calcula su propia ruta individual.
+    /// - Solo evita saturar OTP/Docker.
     ///
-    /// Diferencia con el diseño anterior (incorrecto):
-    ///   ANTES: TryClaimRouteCalculation → un usuario consulta OTP y comparte
-    ///          el resultado (duración, distancia, legs) con todos los demás.
-    ///          → Todos recibían la ruta de Sergi aunque fueran Miau1 y Miau2.
-    ///
-    ///   AHORA: SemaphoreSlim(3) → máximo 3 consultas simultáneas, pero cada
-    ///          una es independiente y genera su propio resultado individual.
+    /// Para demo/local: 1 = máxima estabilidad.
+    /// Más adelante puedes probar SemaphoreSlim(2, 2).
     /// </summary>
-    private static readonly SemaphoreSlim _otpSemaphore = new SemaphoreSlim(3, 3);
+    private static readonly SemaphoreSlim _otpSemaphore = new SemaphoreSlim(1, 1);
 
     static void Main(string[] args)
     {
@@ -99,7 +101,7 @@ internal class Program
 
     static void ServerAPI()
     {
-        IPAddress address = IPAddress.Parse("192.168.111.29");
+        IPAddress address = IPAddress.Parse("192.168.1.39");
         IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
         Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -130,7 +132,7 @@ internal class Program
     {
         try
         {
-            IPAddress address = IPAddress.Parse("192.168.111.29");
+            IPAddress address = IPAddress.Parse("192.168.1.39");
             IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
             Socket socketServer = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -173,7 +175,7 @@ internal class Program
 
             if (option == (int)MainUser.Login)
             {
-                AppLogger.Info("Auth", "Cliente logeándose...");
+                AppLogger.Info("Auth", "Cliente intentando iniciar sesión.");
 
                 using AppDbContext context = new AppDbContext(connectionString);
 
@@ -181,7 +183,7 @@ internal class Program
 
                 if (currentUser is null)
                 {
-                    AppLogger.Warn("Auth", "Login fallido.");
+                    AppLogger.Warn("Auth", "Login fallido. Usuario o contraseña incorrectos.");
                     return;
                 }
 
@@ -191,16 +193,20 @@ internal class Program
                 {
                     int groupOption = SocketTools.receiveInt(socket);
 
+                    AppLogger.Debug("Protocol", $"[User:{currentUser.username}] Opción recibida: {groupOption}");
+
                     switch (groupOption)
                     {
                         case (int)MainMenuOption.CreateGroup:
                             {
+                                AppLogger.Info("Group", $"[User:{currentUser.username}] Solicitando creación de grupo.");
+
                                 CreateGroupService createGroupService = new CreateGroupService(context);
                                 var result = await createGroupService.ExecuteAsync(socket, currentUser);
 
                                 if (!result.Success)
                                 {
-                                    AppLogger.Warn("Lobby", $"[User:{currentUser.username}] No se pudo crear el grupo.");
+                                    AppLogger.Warn("Group", $"[User:{currentUser.username}] No se pudo crear el grupo.");
                                     break;
                                 }
 
@@ -215,9 +221,12 @@ internal class Program
 
                                 activeGroupCode = result.GroupCode;
 
-                                AppLogger.Info("Lobby", $"[Group:{result.GroupCode}] [User:{currentUser.username}] Grupo creado y sesión activa.");
+                                AppLogger.Info(
+                                    "Lobby",
+                                    $"[Group:{result.GroupCode}] [User:{currentUser.username}] Grupo creado. Usuario añadido como owner.");
 
                                 await LobbyGroup(socket, result.GroupCode, currentUser);
+
                                 activeGroupCode = null;
                                 return;
                             }
@@ -225,6 +234,8 @@ internal class Program
                         case (int)MainMenuOption.JoinGroup:
                             {
                                 string groupCode = SocketTools.receiveString(socket);
+
+                                AppLogger.Info("Group", $"[Group:{groupCode}] [User:{currentUser.username}] Intentando unirse al grupo.");
 
                                 bool success = groupSessionManager.TryJoinGroup(
                                     groupCode,
@@ -238,31 +249,34 @@ internal class Program
                                 {
                                     activeGroupCode = groupCode;
 
-                                    AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{currentUser.username}] Usuario unido al grupo.");
+                                    AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{currentUser.username}] Usuario unido correctamente.");
                                     await LobbyGroup(socket, groupCode, currentUser);
+
                                     activeGroupCode = null;
                                     return;
                                 }
 
-                                AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{currentUser.username}] Join fallido.");
+                                AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{currentUser.username}] Join fallido. Grupo no encontrado o no disponible.");
                                 break;
                             }
 
                         case (int)MainMenuOption.GetHomeData:
                             {
-                                AppLogger.Debug("Nav", $"[User:{currentUser.username}] El usuario está en el Home.");
+                                AppLogger.Debug("Nav", $"[User:{currentUser.username}] Solicitando datos de Home.");
+
                                 SocketTools.sendString(currentUser.username, socket);
                                 break;
                             }
 
                         case (int)MainMenuOption.GetProfileData:
                             {
-                                AppLogger.Info("User", $"[User:{currentUser.username}] Consultando datos de perfil.");
+                                AppLogger.Info("User", $"[User:{currentUser.username}] Solicitando datos de perfil.");
 
                                 SocketTools.sendString(currentUser.username, socket);
                                 SocketTools.sendString(currentUser.email, socket);
                                 SocketTools.sendString(currentUser.birth_date.ToString("dd/MM/yyyy"), socket);
 
+                                AppLogger.Debug("User", $"[User:{currentUser.username}] Datos de perfil enviados al cliente.");
                                 break;
                             }
 
@@ -276,12 +290,12 @@ internal class Program
             }
             else if (option == (int)MainUser.Register)
             {
-                AppLogger.Info("Auth", "Cliente registrándose...");
+                AppLogger.Info("Auth", "Cliente solicitando registro.");
 
                 using AppDbContext context = new AppDbContext(connectionString);
                 Register(socket, context);
 
-                AppLogger.Info("Auth", "Cliente registrado correctamente.");
+                AppLogger.Info("Auth", "Registro completado correctamente.");
             }
             else
             {
@@ -303,6 +317,7 @@ internal class Program
             }
             catch
             {
+                AppLogger.Warn("Socket", "No se pudo enviar respuesta de error al cliente.");
             }
         }
         finally
@@ -314,7 +329,10 @@ internal class Program
                 if (session != null)
                 {
                     session.RemoveMember(currentUser.id);
-                    AppLogger.Warn("Lobby", $"[Group:{activeGroupCode}] [User:{currentUser.username}] Usuario eliminado por desconexión.");
+
+                    AppLogger.Warn(
+                        "Lobby",
+                        $"[Group:{activeGroupCode}] [User:{currentUser.username}] Usuario eliminado por desconexión o salida.");
 
                     if (session.MemberCount == 0)
                     {
@@ -324,7 +342,15 @@ internal class Program
                 }
             }
 
-            socket.Close();
+            try
+            {
+                socket.Close();
+                AppLogger.Debug("Socket", "Socket cerrado correctamente.");
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Warn("Socket", $"Error cerrando socket.\n{ex.Message}");
+            }
         }
     }
 
@@ -332,6 +358,8 @@ internal class Program
     {
         string receiveEmail = SocketTools.receiveString(socket);
         string receivePassword = SocketTools.receiveString(socket);
+
+        AppLogger.Debug("Auth", $"Comprobando login para email: {receiveEmail}");
 
         User? userInDb = context.Users
             .FirstOrDefault(u => u.email == receiveEmail && u.password == receivePassword);
@@ -348,6 +376,8 @@ internal class Program
         string email = SocketTools.receiveString(socket);
         string password = SocketTools.receiveString(socket);
         string date = SocketTools.receiveString(socket);
+
+        AppLogger.Info("Auth", $"Intentando registrar usuario: {user}, email: {email}");
 
         AddUser(context, user, email, password, date);
 
@@ -378,6 +408,8 @@ internal class Program
 
     static async Task LobbyGroup(Socket socket, string groupCode, User user)
     {
+        AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] Entrando en lobby.");
+
         while (true)
         {
             GroupSession? session = groupSessionManager.Get(groupCode);
@@ -385,7 +417,7 @@ internal class Program
             if (session == null)
             {
                 SocketTools.sendBool(socket, false);
-                AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Sesión inválida.");
+                AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Sesión inválida o eliminada.");
                 return;
             }
 
@@ -396,8 +428,7 @@ internal class Program
              *   int  memberCount
              *   bool hasStarted
              *
-             * Esto se envía en CADA iteración del bucle, antes de esperar
-             * la siguiente opción del cliente.
+             * Esto mantiene sincronizado el protocolo cliente-servidor.
              */
             SocketTools.sendBool(socket, true);
             SocketTools.sendInt(socket, session.MemberCount);
@@ -419,7 +450,10 @@ internal class Program
             {
                 case (int)LobbyOption.Refresh:
                     {
-                        AppLogger.Debug("Lobby", $"[Group:{groupCode}] [User:{user.username}] Refresh lobby.");
+                        AppLogger.Debug(
+                            "Lobby",
+                            $"[Group:{groupCode}] [User:{user.username}] Refresh. Members={session.MemberCount}, Started={session.HasStarted}");
+
                         break;
                     }
 
@@ -442,7 +476,7 @@ internal class Program
                     {
                         if (user.id != session.OwnerUserId)
                         {
-                            AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Intento de start sin ser owner.");
+                            AppLogger.Warn("Lobby", $"[Group:{groupCode}] [User:{user.username}] Intento de iniciar grupo sin ser owner.");
                             SocketTools.sendBool(socket, false);
                             break;
                         }
@@ -451,9 +485,13 @@ internal class Program
                         SocketTools.sendBool(socket, started);
 
                         if (!started)
+                        {
                             AppLogger.Warn("Lobby", $"[Group:{groupCode}] El grupo ya estaba iniciado.");
+                        }
                         else
+                        {
                             AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] Grupo iniciado por owner.");
+                        }
 
                         break;
                     }
@@ -472,12 +510,16 @@ internal class Program
 
                         if (!allReceived)
                         {
-                            AppLogger.Info("Location", $"[Group:{groupCode}] [User:{user.username}] Ubicación registrada. Aún faltan ubicaciones de otros miembros.");
+                            AppLogger.Info(
+                                "Location",
+                                $"[Group:{groupCode}] [User:{user.username}] Ubicación registrada. Progreso: {session.GetAllLocations().Count}/{session.MemberCount}");
+
                             SendPendingResult(socket);
                             break;
                         }
 
                         AppLogger.Info("Location", $"[Group:{groupCode}] Todas las ubicaciones recibidas. Calculando ruta individual para [User:{user.username}].");
+
                         await SendRouteResult(socket, session, user);
                         return;
                     }
@@ -486,12 +528,16 @@ internal class Program
                     {
                         if (!session.AreAllLocationsReceived())
                         {
-                            AppLogger.Debug("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: faltan ubicaciones.");
+                            AppLogger.Debug(
+                                "Lobby",
+                                $"[Group:{groupCode}] [User:{user.username}] PollResult: faltan ubicaciones. Progreso: {session.GetAllLocations().Count}/{session.MemberCount}");
+
                             SendPendingResult(socket);
                             break;
                         }
 
-                        AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: todas las ubicaciones listas. Calculando ruta individual.");
+                        AppLogger.Info("Lobby", $"[Group:{groupCode}] [User:{user.username}] PollResult: ubicaciones listas. Calculando ruta individual.");
+
                         await SendRouteResult(socket, session, user);
                         return;
                     }
@@ -552,23 +598,19 @@ internal class Program
     /// <summary>
     /// Calcula y envía el resultado de ruta individual al cliente.
     ///
-    /// DISEÑO CORRECTO:
-    ///   - El centroide es COMÚN (calculado de todas las ubicaciones del grupo).
-    ///   - La ruta OTP es INDIVIDUAL: cada usuario consulta desde su propio
-    ///     origen hasta el centroide compartido.
-    ///   - El SemaphoreSlim limita concurrencia sin compartir resultados:
-    ///     cada consulta que entra al semáforo genera su propio MeetingRouteResult.
+    /// Flujo:
+    /// 1. Obtiene todas las ubicaciones del grupo.
+    /// 2. Calcula el centroide común.
+    /// 3. Obtiene la ubicación propia del usuario actual.
+    /// 4. Consulta OTP desde el origen del usuario hasta el centroide.
+    /// 5. Parsea la respuesta.
+    /// 6. Envía el resultado serializado al cliente.
     ///
-    /// DIFERENCIA CON EL DISEÑO ANTERIOR (incorrecto):
-    ///   El diseño anterior usaba TryClaimRouteCalculation para que solo un usuario
-    ///   consultara OTP y el resto esperara su Task. Esto provocaba que Sergi,
-    ///   Miau1 y Miau2 recibieran la misma duración, distancia y legs porque
-    ///   compartían el resultado del primero en ejecutar la consulta.
+    /// Clave:
+    /// El centroide es compartido, pero la ruta es individual por usuario.
     /// </summary>
     static async Task SendRouteResult(Socket socket, GroupSession session, User user)
     {
-        // ── 1. Calcular centroide (idéntico para todos los usuarios del grupo) ─
-
         IReadOnlyCollection<UserLocation> locations = session.GetAllLocations();
 
         List<GeometryUtils.GeographicLocation> points = locations
@@ -579,36 +621,36 @@ internal class Program
 
         AppLogger.Info(
             "Routing",
-            $"[Group:{session.GroupCode}] [User:{user.username}] " +
-            $"Centroide: {centroid.Latitude:F6}, {centroid.Longitude:F6}");
-
-        // ── 2. Obtener ubicación propia del usuario ────────────────────────────
+            $"[Group:{session.GroupCode}] [User:{user.username}] Centroide calculado: {centroid.Latitude:F6}, {centroid.Longitude:F6}");
 
         UserLocation? currentLocation = session.GetLocation(user.id);
 
         if (currentLocation == null)
         {
-            AppLogger.Warn("Routing",
-                $"[Group:{session.GroupCode}] [User:{user.username}] No se encontró la ubicación del usuario.");
+            AppLogger.Warn(
+                "Routing",
+                $"[Group:{session.GroupCode}] [User:{user.username}] No se encontró la ubicación propia del usuario.");
+
             SendErrorResult(socket, -2, "No se encontró la ubicación del usuario actual.");
             return;
         }
-
-        // ── 3. Consultar OTP de forma individual ──────────────────────────────
 
         MeetingRouteResult? route;
 
         try
         {
-            AppLogger.Info("Routing",
-                $"[User:{user.username}] Ejecutando consulta OTP individual.");
+            AppLogger.Info(
+                "Routing",
+                $"[Group:{session.GroupCode}] [User:{user.username}] Esperando turno para consultar OTP.");
 
-            // El semáforo limita la concurrencia para no saturar OTP en Docker,
-            // pero NO comparte resultados entre usuarios.
             await _otpSemaphore.WaitAsync();
 
             try
             {
+                AppLogger.Info(
+                    "Routing",
+                    $"[Group:{session.GroupCode}] [User:{user.username}] Turno OTP adquirido.");
+
                 OTP otp = new OTP(otpHttpClient);
 
                 OTP.Coordenada origin = new OTP.Coordenada(
@@ -619,34 +661,65 @@ internal class Program
                     centroid.Latitude,
                     centroid.Longitude);
 
-                AppLogger.Info("OTP",
-                    $"[User:{user.username}] Consultando ruta " +
-                    $"origen={currentLocation.Latitude:F6},{currentLocation.Longitude:F6} " +
-                    $"destino={centroid.Latitude:F6},{centroid.Longitude:F6}");
+                AppLogger.Info(
+                    "OTP",
+                    $"[User:{user.username}] Consulta OTP iniciada. " +
+                    $"Origen={currentLocation.Latitude:F6},{currentLocation.Longitude:F6} " +
+                    $"Destino={centroid.Latitude:F6},{centroid.Longitude:F6}");
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
 
                 string jsonResponse = await otp.ConsultarAsync(origin, destination);
+
+                sw.Stop();
+
+                AppLogger.Info(
+                    "OTP",
+                    $"[User:{user.username}] OTP respondió en {sw.ElapsedMilliseconds} ms.");
+
                 route = otp.ExtraerResultadoRuta(jsonResponse);
+
+                if (route == null)
+                {
+                    AppLogger.Warn(
+                        "OTP",
+                        $"[User:{user.username}] OTP respondió, pero no se pudo extraer una ruta válida.");
+                }
             }
             finally
             {
-                // Siempre liberar el semáforo, aunque haya excepción.
                 _otpSemaphore.Release();
+
+                AppLogger.Debug(
+                    "Routing",
+                    $"[Group:{session.GroupCode}] [User:{user.username}] Turno OTP liberado.");
             }
+        }
+        catch (TaskCanceledException ex)
+        {
+            AppLogger.Error(
+                "OTP",
+                $"[Group:{session.GroupCode}] [User:{user.username}] Timeout consultando OTP. " +
+                $"Timeout configurado: {otpHttpClient.Timeout.TotalSeconds}s.\n{ex}");
+
+            SendErrorResult(socket, -2, "OTP ha tardado demasiado en responder. Inténtalo de nuevo.");
+            return;
         }
         catch (Exception ex)
         {
-            AppLogger.Error("OTP",
+            AppLogger.Error(
+                "OTP",
                 $"[Group:{session.GroupCode}] [User:{user.username}] Error consultando OTP.\n{ex}");
+
             SendErrorResult(socket, -2, "Error calculando la ruta en el servidor.");
             return;
         }
 
-        // ── 4. Construir y enviar el payload individual ───────────────────────
-
         if (route == null)
         {
-            AppLogger.Warn("Routing",
-                $"[Group:{session.GroupCode}] [User:{user.username}] Sin ruta disponible (OTP no encontró itinerario).");
+            AppLogger.Warn(
+                "Routing",
+                $"[Group:{session.GroupCode}] [User:{user.username}] Sin ruta disponible.");
 
             var noRoutePayload = new MeetingResultTransportModel
             {
@@ -669,11 +742,12 @@ internal class Program
             return;
         }
 
-        AppLogger.Info("Routing",
-            $"[Group:{session.GroupCode}] [User:{user.username}] " +
-            $"Ruta individual: Duración={route.DurationSeconds}s ({route.DurationSeconds / 60} min), " +
-            $"Distancia={route.DistanceMeters:F2}m, Transbordos={route.TransferCount}, " +
-            $"Legs={route.Legs.Count}");
+        AppLogger.Info(
+            "Routing",
+            $"[Group:{session.GroupCode}] [User:{user.username}] Ruta individual calculada. " +
+            $"Duración={route.DurationSeconds}s ({route.DurationSeconds / 60} min), " +
+            $"Distancia={route.DistanceMeters:F2}m, " +
+            $"Transbordos={route.TransferCount}, Legs={route.Legs.Count}");
 
         var payload = new MeetingResultTransportModel
         {
@@ -694,6 +768,11 @@ internal class Program
             Legs = route.Legs
         };
 
-        SocketTools.sendString(JsonSerializer.Serialize(payload), socket);
+        string serializedPayload = JsonSerializer.Serialize(payload);
+        SocketTools.sendString(serializedPayload, socket);
+
+        AppLogger.Debug(
+            "Routing",
+            $"[Group:{session.GroupCode}] [User:{user.username}] Resultado enviado al cliente.");
     }
 }
