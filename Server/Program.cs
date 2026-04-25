@@ -316,8 +316,7 @@ internal class Program
                                 $"[User:{currentUser.username}] Iniciando JoinGroup.");
 
                             // Mismo patrón que CreateGroup: preparar → registrar code → lobby → limpiar
-                            string? joinedCode = await lobbyHandler.PrepareJoinGroupAsync(
-                                socket, currentUser);
+                            string? joinedCode = lobbyHandler.PrepareJoinGroup(socket, currentUser);
 
                             if (joinedCode is not null)
                             {
