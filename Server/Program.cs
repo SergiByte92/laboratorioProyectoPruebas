@@ -227,7 +227,14 @@ internal class Program
         // Cada conexión tiene sus propios handlers, pero comparten
         // los singletons inyectados (AuthService, SessionManager, etc.)
         var authHandler = new AuthHandler(AuthService);
-        var lobbyHandler = new LobbyHandler(SessionManager, OtpHttpClient, OtpSemaphore, ConnectionString);
+
+        IMeetingRouteService meetingRouteService =
+            new MeetingRouteService(OtpHttpClient, OtpSemaphore);
+
+        var lobbyHandler = new LobbyHandler(
+            SessionManager,
+            meetingRouteService,
+            ConnectionString);
 
         // Variables de sesión:
         // currentUser     → usuario autenticado (null si aún no logueado)

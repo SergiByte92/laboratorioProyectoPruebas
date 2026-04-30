@@ -1,13 +1,10 @@
 ﻿using NetUtils;
-using Server.Algorithm;
 using Server.API;
 using Server.Application.Services;
 using Server.Data;
 using Server.Group;
 using Server.Group.GroupSessions;
 using Server.Infrastructure;
-using Server.UserRouting;
-using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text.Json;
 using static Server.Data.AppDbContext;
@@ -17,8 +14,7 @@ namespace Server.Presentation.Handlers;
 public sealed class LobbyHandler
 {
     private readonly GroupSessionManager _sessionManager;
-    private readonly HttpClient _httpClient;
-    private readonly SemaphoreSlim _otpSemaphore;
+    private readonly IMeetingRouteService _meetingRouteService;
     private readonly string _connectionString;
 
     private enum LobbyOpt
@@ -32,13 +28,11 @@ public sealed class LobbyHandler
 
     public LobbyHandler(
         GroupSessionManager sessionManager,
-        HttpClient httpClient,
-        SemaphoreSlim otpSemaphore,
+        IMeetingRouteService meetingRouteService,
         string connectionString)
     {
         _sessionManager = sessionManager;
-        _httpClient = httpClient;
-        _otpSemaphore = otpSemaphore;
+        _meetingRouteService = meetingRouteService;
         _connectionString = connectionString;
     }
 
@@ -107,9 +101,11 @@ public sealed class LobbyHandler
             if (session is null)
             {
                 SocketTools.sendBool(socket, false);
+
                 AppLogger.Warn(
                     "LobbyHandler",
                     $"[Group:{groupCode}] Sesión no encontrada. Terminando lobby.");
+
                 return;
             }
 
@@ -126,6 +122,7 @@ public sealed class LobbyHandler
                 AppLogger.Warn(
                     "LobbyHandler",
                     $"[Group:{groupCode}] [User:{user.username}] Desconexión detectada.");
+
                 return;
             }
 
@@ -282,128 +279,10 @@ public sealed class LobbyHandler
 
     private async Task SendRouteResultAsync(Socket socket, GroupSession session, User user)
     {
-        var locations = session.GetAllLocations();
+        MeetingResultTransportModel result =
+            await _meetingRouteService.CalculateForUserAsync(session, user);
 
-        var points = locations
-            .Select(location => new GeometryUtils.GeographicLocation(
-                location.Latitude,
-                location.Longitude))
-            .ToList();
-
-        GeometryUtils.GeographicLocation centroid = GeometryUtils.CalculateCentroid(points);
-
-        AppLogger.Info(
-            "LobbyHandler",
-            $"[Group:{session.GroupCode}] [User:{user.username}] Centroide: " +
-            $"{centroid.Latitude:F6}, {centroid.Longitude:F6}");
-
-        UserLocation? userLocation = session.GetLocation(user.id);
-
-        if (userLocation is null)
-        {
-            AppLogger.Warn(
-                "LobbyHandler",
-                $"[Group:{session.GroupCode}] [User:{user.username}] Ubicación no encontrada.");
-
-            SendPayload(socket, MeetingResultFactory.Error("No se encontró la ubicación del usuario actual."));
-            return;
-        }
-
-        MeetingRouteResult? route;
-
-        try
-        {
-            AppLogger.Info(
-                "LobbyHandler",
-                $"[Group:{session.GroupCode}] [User:{user.username}] Esperando turno OTP...");
-
-            await _otpSemaphore.WaitAsync();
-
-            try
-            {
-                AppLogger.Info(
-                    "LobbyHandler",
-                    $"[Group:{session.GroupCode}] [User:{user.username}] Turno OTP adquirido.");
-
-                var otp = new OTP(_httpClient);
-
-                var origin = new OTP.Coordenada(
-                    userLocation.Latitude,
-                    userLocation.Longitude);
-
-                var destination = new OTP.Coordenada(
-                    centroid.Latitude,
-                    centroid.Longitude);
-
-                AppLogger.Info(
-                    "LobbyHandler",
-                    $"[User:{user.username}] OTP: " +
-                    $"{userLocation.Latitude:F6},{userLocation.Longitude:F6} → " +
-                    $"{centroid.Latitude:F6},{centroid.Longitude:F6}");
-
-                var sw = Stopwatch.StartNew();
-                string jsonResponse = await otp.ConsultarAsync(origin, destination);
-                sw.Stop();
-
-                AppLogger.Info(
-                    "LobbyHandler",
-                    $"[User:{user.username}] OTP respondió en {sw.ElapsedMilliseconds} ms.");
-
-                route = otp.ExtraerResultadoRuta(jsonResponse);
-            }
-            finally
-            {
-                _otpSemaphore.Release();
-
-                AppLogger.Debug(
-                    "LobbyHandler",
-                    $"[Group:{session.GroupCode}] [User:{user.username}] Semáforo OTP liberado.");
-            }
-        }
-        catch (TaskCanceledException ex)
-        {
-            AppLogger.Error(
-                "LobbyHandler",
-                $"[User:{user.username}] Timeout OTP. {ex.Message}");
-
-            SendPayload(socket, MeetingResultFactory.Error("OTP tardó demasiado. Inténtalo de nuevo."));
-            return;
-        }
-        catch (Exception ex)
-        {
-            AppLogger.Error(
-                "LobbyHandler",
-                $"[User:{user.username}] Error consultando OTP.\n{ex}");
-
-            SendPayload(socket, MeetingResultFactory.Error("Error calculando la ruta en el servidor."));
-            return;
-        }
-
-        if (route is null)
-        {
-            AppLogger.Warn(
-                "LobbyHandler",
-                $"[Group:{session.GroupCode}] [User:{user.username}] OTP sin itinerario disponible.");
-
-            SendPayload(socket, MeetingResultFactory.NoRoute(
-                centroid.Latitude,
-                centroid.Longitude,
-                userLocation));
-
-            return;
-        }
-
-        AppLogger.Info(
-            "LobbyHandler",
-            $"[Group:{session.GroupCode}] [User:{user.username}] Ruta calculada: " +
-            $"{route.DurationSeconds}s, {route.DistanceMeters:F0}m, " +
-            $"{route.TransferCount} transbordos, {route.Legs.Count} tramos.");
-
-        SendPayload(socket, MeetingResultFactory.Success(
-            centroid.Latitude,
-            centroid.Longitude,
-            userLocation,
-            route));
+        SendPayload(socket, result);
 
         AppLogger.Debug(
             "LobbyHandler",
