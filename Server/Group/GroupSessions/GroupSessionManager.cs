@@ -1,57 +1,63 @@
-﻿using System;
-using System.Collections.Concurrent;
-using Server.UserRouting;
+﻿using System.Collections.Concurrent;
 
-namespace Server.Group.GroupSessions // Si peta, el servidor debería al encenderse cargar grupos activos en memoria
+namespace Server.Group.GroupSessions
 {
     /// <summary>
-    /// Gestiona las sesiones de grupo activas en memoria, permitiendo crear, recuperar,
-    /// añadir y eliminar grupos que están en uso durante la ejecución del servidor.
+    /// Gestiona las sesiones de grupo activas en memoria.
+    /// La búsqueda por código usa ConcurrentDictionary para soportar varios clientes.
     /// </summary>
-    public class GroupSessionManager // Supongo que tocara usar locks, pendiente de implementar
+    public class GroupSessionManager
     {
-
         private readonly ConcurrentDictionary<string, GroupSession> _activeGroups = new();
 
         public void Add(GroupSession session)
         {
-
             _activeGroups[session.GroupCode] = session;
         }
 
         public GroupSession? Get(string code)
         {
+            if (string.IsNullOrWhiteSpace(code))
+                return null;
 
-            _activeGroups.TryGetValue(code, out var session);
+            string normalizedCode = NormalizeGroupCode(code);
+            _activeGroups.TryGetValue(normalizedCode, out var session);
             return session;
         }
 
         public bool TryJoinGroup(string groupCode, int userId, string username)
         {
-
-            if (!_activeGroups.TryGetValue(groupCode, out var session))
+            if (string.IsNullOrWhiteSpace(groupCode))
                 return false;
 
-            session.AddMember(userId, username);
-            return true;
+            string normalizedCode = NormalizeGroupCode(groupCode);
+
+            if (!_activeGroups.TryGetValue(normalizedCode, out var session))
+                return false;
+
+            return session.AddMember(userId, username);
         }
 
         public bool Remove(string groupCode)
         {
-            if (_activeGroups.TryRemove(groupCode, out var session)) // lo bueno del out es que me permite usar posteriormente esa variable
+            if (string.IsNullOrWhiteSpace(groupCode))
+                return false;
+
+            string normalizedCode = NormalizeGroupCode(groupCode);
+
+            if (_activeGroups.TryRemove(normalizedCode, out _))
             {
-                Console.WriteLine($"[INFO] Sesión eliminada de memoria: {groupCode}");
-
-                // OJO:
-                // Aquí NO cerramos sockets, porque los estás manejando con hilos en otro sitio.
-                // Tampoco hace falta Dispose si GroupSession no tiene recursos IDisposable propios.
-
+                Console.WriteLine($"[INFO] Sesión eliminada de memoria: {normalizedCode}");
                 return true;
             }
 
-            Console.WriteLine($"[WARN] No se encontró la sesión: {groupCode}");
-            // Quizás aqui deberia actualizarse la base de datos a que no esta activo el grupo
+            Console.WriteLine($"[WARN] No se encontró la sesión: {normalizedCode}");
             return false;
+        }
+
+        private static string NormalizeGroupCode(string code)
+        {
+            return code.Trim().ToUpperInvariant();
         }
     }
 }

@@ -13,6 +13,9 @@ namespace Server.Presentation.Handlers;
 
 public sealed class LobbyHandler
 {
+    private const int MinGroupCodeLength = 4;
+    private const int MaxGroupCodeLength = 12;
+
     private readonly GroupSessionManager _sessionManager;
     private readonly IMeetingRouteService _meetingRouteService;
     private readonly string _connectionString;
@@ -52,7 +55,16 @@ public sealed class LobbyHandler
         }
 
         var session = new GroupSession(result.GroupId, result.GroupCode, user.id);
-        session.AddMember(user.id, user.username);
+        bool addedOwner = session.AddMember(user.id, user.username);
+
+        if (!addedOwner)
+        {
+            AppLogger.Error(
+                "LobbyHandler",
+                $"[Group:{result.GroupCode}] No se pudo añadir al owner a la sesión en memoria.");
+            return null;
+        }
+
         _sessionManager.Add(session);
 
         AppLogger.Info(
@@ -64,11 +76,18 @@ public sealed class LobbyHandler
 
     public string? PrepareJoinGroup(Socket socket, User user)
     {
-        string groupCode = SocketTools.receiveString(socket);
+        string groupCode = NormalizeGroupCode(SocketTools.receiveString(socket));
 
         AppLogger.Info(
             "LobbyHandler",
             $"[Group:{groupCode}] [User:{user.username}] Intentando unirse...");
+
+        if (!IsValidGroupCode(groupCode))
+        {
+            SocketTools.sendBool(socket, false);
+            AppLogger.Warn("LobbyHandler", $"[Group:{groupCode}] Join rechazado: código inválido.");
+            return null;
+        }
 
         bool success = _sessionManager.TryJoinGroup(groupCode, user.id, user.username);
         SocketTools.sendBool(socket, success);
@@ -77,7 +96,7 @@ public sealed class LobbyHandler
         {
             AppLogger.Warn(
                 "LobbyHandler",
-                $"[Group:{groupCode}] Join fallido — grupo no encontrado o iniciado.");
+                $"[Group:{groupCode}] Join fallido — grupo no encontrado, iniciado o usuario duplicado.");
             return null;
         }
 
@@ -231,9 +250,20 @@ public sealed class LobbyHandler
         }
 
         var locationService = new ReceiveLocationService();
-        bool allReceived = locationService.Execute(socket, session, user);
+        ReceiveLocationResult locationResult = locationService.Execute(socket, session, user);
 
-        if (!allReceived)
+        if (!locationResult.Success)
+        {
+            AppLogger.Warn(
+                "LobbyHandler",
+                $"[Group:{groupCode}] [User:{user.username}] Ubicación rechazada: {locationResult.ErrorMessage}");
+
+            SendPayload(socket, MeetingResultFactory.Error(
+                locationResult.ErrorMessage ?? "No se pudo registrar la ubicación."));
+            return false;
+        }
+
+        if (!locationResult.AllLocationsReceived)
         {
             AppLogger.Info(
                 "LobbyHandler",
@@ -293,5 +323,20 @@ public sealed class LobbyHandler
     {
         string json = JsonSerializer.Serialize(payload);
         SocketTools.sendString(json, socket);
+    }
+
+    private static string NormalizeGroupCode(string? value)
+    {
+        return (value ?? string.Empty)
+            .Trim()
+            .Replace(" ", string.Empty)
+            .ToUpperInvariant();
+    }
+
+    private static bool IsValidGroupCode(string groupCode)
+    {
+        return groupCode.Length >= MinGroupCodeLength
+            && groupCode.Length <= MaxGroupCodeLength
+            && groupCode.All(char.IsLetterOrDigit);
     }
 }

@@ -4,23 +4,27 @@ using Server.UserRouting;
 namespace Server.Group.GroupSessions
 {
     /// <summary>
-    /// Mantiene el estado activo de un grupo en memoria, incluyendo miembros,
-    /// ubicaciones recibidas y control del ciclo de vida de la sesión.
-    ///
-    /// DISEÑO INTENCIONADO: Esta clase NO almacena resultados de rutas.
-    /// Cada usuario calcula su propia ruta OTP de forma individual.
-    /// El centroide es común, pero la ruta (duración, distancia, legs)
-    /// es personal y se calcula por separado para cada miembro.
+    /// Mantiene el estado activo de un grupo en memoria.
+    /// 
+    /// Responsabilidades:
+    /// - miembros activos,
+    /// - owner,
+    /// - estado iniciado/no iniciado,
+    /// - ubicaciones recibidas.
+    /// 
+    /// Nota: esta clase no almacena resultados de rutas. Cada usuario calcula
+    /// su propia ruta hacia el centroide común.
     /// </summary>
     public sealed class GroupSession
     {
+        private readonly object _stateLock = new();
+        private readonly ConcurrentDictionary<int, GroupMember> _members = new();
+        private readonly ConcurrentDictionary<int, UserLocation> _locations = new();
+
         public int GroupId { get; }
         public string GroupCode { get; }
         public int OwnerUserId { get; }
         public bool HasStarted { get; private set; }
-
-        private readonly ConcurrentDictionary<int, GroupMember> _members = new();
-        private readonly ConcurrentDictionary<int, UserLocation> _locations = new();
 
         public int MemberCount => _members.Count;
         public int LocationCount => _locations.Count;
@@ -33,12 +37,18 @@ namespace Server.Group.GroupSessions
             HasStarted = false;
         }
 
-        public void AddMember(int userId, string username)
+        public bool AddMember(int userId, string username)
         {
-            if (HasStarted)
-                return;
+            if (userId <= 0 || string.IsNullOrWhiteSpace(username))
+                return false;
 
-            _members.TryAdd(userId, new GroupMember(userId, username));
+            lock (_stateLock)
+            {
+                if (HasStarted)
+                    return false;
+
+                return _members.TryAdd(userId, new GroupMember(userId, username));
+            }
         }
 
         public GroupMember? GetMember(int userId)
@@ -55,19 +65,35 @@ namespace Server.Group.GroupSessions
 
         public bool Start()
         {
-            if (HasStarted)
-                return false;
+            lock (_stateLock)
+            {
+                if (HasStarted)
+                    return false;
 
-            HasStarted = true;
-            return true;
+                if (MemberCount == 0)
+                    return false;
+
+                HasStarted = true;
+                return true;
+            }
         }
 
-        public void AddOrUpdateLocation(UserLocation location)
+        public bool AddOrUpdateLocation(UserLocation location)
         {
-            if (!HasStarted)
-                return;
+            if (location.UserId <= 0)
+                return false;
 
-            _locations[location.UserId] = location;
+            lock (_stateLock)
+            {
+                if (!HasStarted)
+                    return false;
+
+                if (!_members.ContainsKey(location.UserId))
+                    return false;
+
+                _locations[location.UserId] = location;
+                return true;
+            }
         }
 
         public UserLocation? GetLocation(int userId)

@@ -147,7 +147,7 @@ internal class Program
     // ── Listener puerto 1000 (ServerAPI — reservado para uso futuro) ────
     static void ServerAPI()
     {
-        IPAddress address = IPAddress.Parse("192.168.1.39");
+        IPAddress address = IPAddress.Parse("192.168.1.37");
         IPEndPoint endPoint = new IPEndPoint(address, 1000);
 
         Socket server = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
@@ -170,7 +170,7 @@ internal class Program
     {
         try
         {
-            IPAddress address = IPAddress.Parse("192.168.1.39");
+            IPAddress address = IPAddress.Parse("192.168.1.37");
             IPEndPoint endPoint = new IPEndPoint(address, 1001);
 
             Socket server = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);

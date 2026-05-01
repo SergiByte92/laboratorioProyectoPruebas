@@ -14,6 +14,17 @@ namespace Server.Group
     /// </summary>
     internal class CreateGroupService
     {
+        private const int MinGroupNameLength = 3;
+        private const int MaxGroupNameLength = 50;
+        private const int MaxGroupLabelLength = 50;
+        private const int MaxGroupDescriptionLength = 250;
+        private const int MaxGroupMethodLength = 30;
+
+        private static readonly HashSet<string> SupportedMethods = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "centroid"
+        };
+
         private readonly AppDbContext _context;
 
         public CreateGroupService(AppDbContext context)
@@ -21,16 +32,16 @@ namespace Server.Group
             _context = context;
         }
 
-        public async Task<(bool Success, int GroupId, string GroupCode)> ExecuteAsync(Socket socket, User currentUser)
+        public async Task<(bool Success, int GroupId, string GroupCode)> ExecuteAsync(
+            Socket socket,
+            User currentUser)
         {
-            string groupName = SocketTools.receiveString(socket);
-            string groupLabel = SocketTools.receiveString(socket);
-            string groupDescription = SocketTools.receiveString(socket);
-            string groupMethod = SocketTools.receiveString(socket);
+            string groupName = Normalize(SocketTools.receiveString(socket));
+            string groupLabel = Normalize(SocketTools.receiveString(socket));
+            string groupDescription = Normalize(SocketTools.receiveString(socket));
+            string groupMethod = Normalize(SocketTools.receiveString(socket));
 
-            if (string.IsNullOrWhiteSpace(groupName) ||
-                string.IsNullOrWhiteSpace(groupLabel) ||
-                string.IsNullOrWhiteSpace(groupMethod))
+            if (!IsValidCreateGroupInput(groupName, groupLabel, groupDescription, groupMethod))
             {
                 SocketTools.sendBool(socket, false);
                 return (false, 0, string.Empty);
@@ -53,7 +64,7 @@ namespace Server.Group
                     isActive = true,
                     created_at = DateTime.UtcNow
                 };
-                
+
                 _context.Groups.Add(groupAdd);
                 await _context.SaveChangesAsync();
 
@@ -84,6 +95,45 @@ namespace Server.Group
 
                 return (false, 0, string.Empty);
             }
+        }
+
+        private static bool IsValidCreateGroupInput(
+            string groupName,
+            string groupLabel,
+            string groupDescription,
+            string groupMethod)
+        {
+            if (string.IsNullOrWhiteSpace(groupName) ||
+                groupName.Length < MinGroupNameLength ||
+                groupName.Length > MaxGroupNameLength)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(groupLabel) ||
+                groupLabel.Length > MaxGroupLabelLength)
+            {
+                return false;
+            }
+
+            if (groupDescription.Length > MaxGroupDescriptionLength)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(groupMethod) ||
+                groupMethod.Length > MaxGroupMethodLength)
+            {
+                return false;
+            }
+
+            if (!SupportedMethods.Contains(groupMethod))
+                return false;
+
+            return true;
+        }
+
+        private static string Normalize(string? value)
+        {
+            return value?.Trim() ?? string.Empty;
         }
     }
 }
