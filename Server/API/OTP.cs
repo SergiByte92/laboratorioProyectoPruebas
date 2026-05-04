@@ -6,43 +6,19 @@ namespace Server.API;
 
 /// <summary>
 /// Cliente de integración con OpenTripPlanner.
-///
+/// 
 /// Responsabilidades:
-/// - Construir la query GraphQL.
-/// - Enviar la petición HTTP.
+/// - Construir y enviar la consulta GraphQL.
 /// - Validar errores HTTP y GraphQL.
-/// - Parsear duración, distancia, legs, líneas y transbordos.
-///
-/// CAMBIO: GetQueryDateTime evita que OTP devuelva tripPatterns vacío
-/// cuando la consulta llega fuera del horario de servicio de transporte
-/// (p.ej. de madrugada). En ese caso, avanza la hora de consulta al día
-/// siguiente a las 09:00 para obtener siempre un itinerario real.
+/// - Parsear la respuesta de OTP a modelos internos de ruta.
 /// </summary>
 public sealed class OTP
 {
-    /// <summary>
-    /// Coordenada geográfica simple.
-    /// </summary>
-    public sealed class Coordenada
-    {
-        public double Latitud { get; set; }
-        public double Longitud { get; set; }
+    private const string LogContext = nameof(OTP);
 
-        public Coordenada(double latitud, double longitud)
-        {
-            Latitud = latitud;
-            Longitud = longitud;
-        }
-    }
+    private const string OtpGraphQlUrl = "http://localhost:8080/otp/transmodel/v3";
 
-    private readonly HttpClient _httpClient;
-
-    /// <summary>
-    /// Endpoint GraphQL de OTP.
-    /// </summary>
-    private const string Url = "http://localhost:8080/otp/transmodel/v3";
-
-    private const string Query = @"
+    private const string TripQuery = @"
 query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
   trip(dateTime: $dateTime, from: $from, to: $to) {
     tripPatterns {
@@ -110,84 +86,74 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
   }
 }";
 
+    private readonly HttpClient _httpClient;
+
     public OTP(HttpClient httpClient)
     {
         _httpClient = httpClient;
     }
 
     /// <summary>
+    /// Coordenada geográfica simple usada como origen o destino de una ruta.
+    /// </summary>
+    public sealed class Coordenada
+    {
+        public double Latitud { get; set; }
+        public double Longitud { get; set; }
+
+        public Coordenada(double latitud, double longitud)
+        {
+            Latitud = latitud;
+            Longitud = longitud;
+        }
+    }
+
+    /// <summary>
     /// Consulta OTP y devuelve el JSON crudo.
-    ///
-    /// Usa GetQueryDateTime() en lugar de DateTime.UtcNow para evitar
-    /// recibir tripPatterns vacío durante horario nocturno sin servicio.
+    /// 
+    /// Usa una fecha de consulta controlada para evitar respuestas vacías
+    /// durante franjas sin servicio de transporte.
     /// </summary>
     public async Task<string> ConsultarAsync(Coordenada origen, Coordenada destino)
     {
         string queryDateTime = GetQueryDateTime();
 
         AppLogger.Info(
-            "OTP",
+            LogContext,
             $"Consultando ruta origen={origen.Latitud:F6},{origen.Longitud:F6} " +
             $"destino={destino.Latitud:F6},{destino.Longitud:F6} " +
             $"dateTime={queryDateTime}");
 
-        var bodyObject = new
+        var body = new
         {
-            query = Query,
+            query = TripQuery,
             variables = new
             {
                 dateTime = queryDateTime,
-                from = new
-                {
-                    coordinates = new
-                    {
-                        latitude = origen.Latitud,
-                        longitude = origen.Longitud
-                    }
-                },
-                to = new
-                {
-                    coordinates = new
-                    {
-                        latitude = destino.Latitud,
-                        longitude = destino.Longitud
-                    }
-                }
+                from = CreateLocation(origen),
+                to = CreateLocation(destino)
             }
         };
 
-        string jsonBody = JsonSerializer.Serialize(bodyObject);
+        string jsonBody = JsonSerializer.Serialize(body);
 
         using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-        using HttpResponseMessage response = await _httpClient.PostAsync(Url, content);
+        using HttpResponseMessage response = await _httpClient.PostAsync(OtpGraphQlUrl, content);
 
         string jsonResponse = await response.Content.ReadAsStringAsync();
 
-        AppLogger.Info("OTP", $"HTTP Status={(int)response.StatusCode} {response.StatusCode}");
+        AppLogger.Info(LogContext, $"HTTP Status={(int)response.StatusCode} {response.StatusCode}");
 
-        if (!response.IsSuccessStatusCode)
-        {
-            AppLogger.Error("OTP", $"Error HTTP {(int)response.StatusCode} {response.StatusCode}");
-            throw new Exception($"[OTP] Error HTTP {(int)response.StatusCode}: {jsonResponse}");
-        }
+        ValidateHttpResponse(response, jsonResponse);
+        ValidateGraphQlResponse(jsonResponse);
 
-        using JsonDocument doc = JsonDocument.Parse(jsonResponse);
+        AppLogger.Debug(LogContext, "Consulta completada correctamente.");
 
-        if (doc.RootElement.TryGetProperty("errors", out JsonElement errors) &&
-            errors.ValueKind == JsonValueKind.Array &&
-            errors.GetArrayLength() > 0)
-        {
-            AppLogger.Error("OTP", $"GraphQL errors detectados: {errors}");
-            throw new Exception($"[OTP] Error GraphQL: {errors}");
-        }
-
-        AppLogger.Debug("OTP", "Consulta completada correctamente.");
         return jsonResponse;
     }
 
     /// <summary>
-    /// Método de compatibilidad: devuelve solo la duración.
-    /// Internamente usa el parser completo.
+    /// Método de compatibilidad para obtener únicamente la duración de la ruta.
     /// </summary>
     public int? ExtraerDuracion(string jsonResponse)
     {
@@ -196,43 +162,32 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
     }
 
     /// <summary>
-    /// Parser principal.
-    /// Extrae el primer itinerario de OTP y lo convierte a MeetingRouteResult.
-    /// Devuelve null cuando OTP responde bien pero no encuentra ruta.
+    /// Extrae el primer itinerario válido de OTP y lo convierte a MeetingRouteResult.
+    /// 
+    /// Devuelve null cuando OTP responde correctamente pero no encuentra ruta.
     /// </summary>
     public MeetingRouteResult? ExtraerResultadoRuta(string jsonResponse)
     {
         using JsonDocument doc = JsonDocument.Parse(jsonResponse);
 
-        if (doc.RootElement.TryGetProperty("errors", out JsonElement errors) &&
-            errors.ValueKind == JsonValueKind.Array &&
-            errors.GetArrayLength() > 0)
-        {
-            throw new Exception($"[OTP] Error GraphQL al extraer ruta: {errors}");
-        }
+        ValidateGraphQlDocument(doc);
 
-        if (!doc.RootElement.TryGetProperty("data", out JsonElement data))
-            throw new Exception("[OTP] No se encontró 'data' en la respuesta.");
+        JsonElement trip = GetTripElement(doc);
 
-        if (!data.TryGetProperty("trip", out JsonElement trip) ||
-            trip.ValueKind == JsonValueKind.Null)
+        if (trip.ValueKind == JsonValueKind.Null)
         {
-            AppLogger.Warn("OTP", "'trip' es null. Sin ruta disponible.");
+            AppLogger.Warn(LogContext, "'trip' es null. Sin ruta disponible.");
             return null;
         }
 
-        if (!trip.TryGetProperty("tripPatterns", out JsonElement patterns) ||
-            patterns.ValueKind != JsonValueKind.Array)
-        {
-            throw new Exception("[OTP] 'tripPatterns' no existe o no es un array.");
-        }
+        JsonElement patterns = GetTripPatterns(trip);
 
         int patternCount = patterns.GetArrayLength();
-        AppLogger.Info("OTP", $"Itinerarios encontrados: {patternCount}");
+        AppLogger.Info(LogContext, $"Itinerarios encontrados: {patternCount}");
 
         if (patternCount == 0)
         {
-            AppLogger.Warn("OTP", "tripPatterns vacío. Sin ruta disponible.");
+            AppLogger.Warn(LogContext, "tripPatterns vacío. Sin ruta disponible.");
             return null;
         }
 
@@ -240,25 +195,12 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
 
         int duration = ReadInt(firstPattern, "duration");
         double distance = ReadDouble(firstPattern, "distance");
+        List<RouteLegDto> legs = ParseLegs(firstPattern);
 
-        List<RouteLegDto> legs = new();
-
-        if (firstPattern.TryGetProperty("legs", out JsonElement legsElement) &&
-            legsElement.ValueKind == JsonValueKind.Array)
-        {
-            foreach (JsonElement leg in legsElement.EnumerateArray())
-            {
-                legs.Add(ParseLeg(leg));
-            }
-        }
-
-        int transitLegs = legs.Count(l =>
-            !string.Equals(l.Mode, "WALK", StringComparison.OrdinalIgnoreCase));
-
-        int transferCount = Math.Max(0, transitLegs - 1);
+        int transferCount = CalculateTransferCount(legs);
 
         AppLogger.Info(
-            "OTP",
+            LogContext,
             $"Primer itinerario: duration={duration}s ({duration / 60} min), " +
             $"distance={distance:F2}m, legs={legs.Count}, transfers={transferCount}");
 
@@ -271,7 +213,90 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         };
     }
 
-    // ── Helpers de parseo ─────────────────────────────────────────────────────
+    private static object CreateLocation(Coordenada coordenada)
+    {
+        return new
+        {
+            coordinates = new
+            {
+                latitude = coordenada.Latitud,
+                longitude = coordenada.Longitud
+            }
+        };
+    }
+
+    private static void ValidateHttpResponse(HttpResponseMessage response, string jsonResponse)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        AppLogger.Error(LogContext, $"Error HTTP {(int)response.StatusCode} {response.StatusCode}");
+
+        throw new Exception($"[OTP] Error HTTP {(int)response.StatusCode}: {jsonResponse}");
+    }
+
+    private static void ValidateGraphQlResponse(string jsonResponse)
+    {
+        using JsonDocument doc = JsonDocument.Parse(jsonResponse);
+        ValidateGraphQlDocument(doc);
+    }
+
+    private static void ValidateGraphQlDocument(JsonDocument doc)
+    {
+        if (doc.RootElement.TryGetProperty("errors", out JsonElement errors) &&
+            errors.ValueKind == JsonValueKind.Array &&
+            errors.GetArrayLength() > 0)
+        {
+            AppLogger.Error(LogContext, $"GraphQL errors detectados: {errors}");
+            throw new Exception($"[OTP] Error GraphQL: {errors}");
+        }
+    }
+
+    private static JsonElement GetTripElement(JsonDocument doc)
+    {
+        if (!doc.RootElement.TryGetProperty("data", out JsonElement data))
+        {
+            throw new Exception("[OTP] No se encontró 'data' en la respuesta.");
+        }
+
+        if (!data.TryGetProperty("trip", out JsonElement trip))
+        {
+            throw new Exception("[OTP] No se encontró 'trip' en la respuesta.");
+        }
+
+        return trip;
+    }
+
+    private static JsonElement GetTripPatterns(JsonElement trip)
+    {
+        if (!trip.TryGetProperty("tripPatterns", out JsonElement patterns) ||
+            patterns.ValueKind != JsonValueKind.Array)
+        {
+            throw new Exception("[OTP] 'tripPatterns' no existe o no es un array.");
+        }
+
+        return patterns;
+    }
+
+    private static List<RouteLegDto> ParseLegs(JsonElement pattern)
+    {
+        List<RouteLegDto> legs = new();
+
+        if (!pattern.TryGetProperty("legs", out JsonElement legsElement) ||
+            legsElement.ValueKind != JsonValueKind.Array)
+        {
+            return legs;
+        }
+
+        foreach (JsonElement leg in legsElement.EnumerateArray())
+        {
+            legs.Add(ParseLeg(leg));
+        }
+
+        return legs;
+    }
 
     private static RouteLegDto ParseLeg(JsonElement leg)
     {
@@ -281,33 +306,10 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         string fromName = ReadPlaceName(leg, "fromPlace");
         string toName = ReadPlaceName(leg, "toPlace");
 
-        string? publicCode = null;
-        string? lineName = null;
-
-        if (leg.TryGetProperty("line", out JsonElement line) &&
-            line.ValueKind != JsonValueKind.Null)
-        {
-            publicCode = ReadNullableString(line, "publicCode");
-            lineName = ReadNullableString(line, "name");
-        }
-
-        string? headsign = null;
-
-        if (leg.TryGetProperty("fromEstimatedCall", out JsonElement call) &&
-            call.ValueKind != JsonValueKind.Null &&
-            call.TryGetProperty("destinationDisplay", out JsonElement display) &&
-            display.ValueKind != JsonValueKind.Null)
-        {
-            headsign = ReadNullableString(display, "frontText");
-        }
-
-        string? encodedPolyline = null;
-
-        if (leg.TryGetProperty("pointsOnLink", out JsonElement pointsOnLink) &&
-            pointsOnLink.ValueKind != JsonValueKind.Null)
-        {
-            encodedPolyline = ReadNullableString(pointsOnLink, "points");
-        }
+        string? publicCode = ReadLineProperty(leg, "publicCode");
+        string? lineName = ReadLineProperty(leg, "name");
+        string? headsign = ReadHeadsign(leg);
+        string? encodedPolyline = ReadEncodedPolyline(leg);
 
         return new RouteLegDto
         {
@@ -321,6 +323,64 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             Headsign = headsign,
             EncodedPolyline = encodedPolyline
         };
+    }
+
+    private static int CalculateTransferCount(List<RouteLegDto> legs)
+    {
+        int transitLegs = legs.Count(leg =>
+            !string.Equals(leg.Mode, "WALK", StringComparison.OrdinalIgnoreCase));
+
+        return Math.Max(0, transitLegs - 1);
+    }
+
+    private static string? ReadLineProperty(JsonElement leg, string propertyName)
+    {
+        if (!leg.TryGetProperty("line", out JsonElement line) ||
+            line.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        return ReadNullableString(line, propertyName);
+    }
+
+    private static string? ReadHeadsign(JsonElement leg)
+    {
+        if (!leg.TryGetProperty("fromEstimatedCall", out JsonElement call) ||
+            call.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (!call.TryGetProperty("destinationDisplay", out JsonElement display) ||
+            display.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        return ReadNullableString(display, "frontText");
+    }
+
+    private static string? ReadEncodedPolyline(JsonElement leg)
+    {
+        if (!leg.TryGetProperty("pointsOnLink", out JsonElement pointsOnLink) ||
+            pointsOnLink.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        return ReadNullableString(pointsOnLink, "points");
+    }
+
+    private static string ReadPlaceName(JsonElement leg, string placeProperty)
+    {
+        if (!leg.TryGetProperty(placeProperty, out JsonElement place) ||
+            place.ValueKind == JsonValueKind.Null)
+        {
+            return string.Empty;
+        }
+
+        return ReadString(place, "name");
     }
 
     private static string ReadString(JsonElement element, string propertyName)
@@ -355,35 +415,12 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : 0;
     }
 
-    private static string ReadPlaceName(JsonElement leg, string placeProperty)
-    {
-        if (!leg.TryGetProperty(placeProperty, out JsonElement place) ||
-            place.ValueKind == JsonValueKind.Null)
-        {
-            return string.Empty;
-        }
-
-        return ReadString(place, "name");
-    }
-
-    // ── Fecha/hora para la consulta ───────────────────────────────────────────
-
     /// <summary>
     /// Calcula la fecha y hora que se enviará a OTP.
-    ///
-    /// Problema: si la consulta llega entre las 00:00 y las 06:00 (hora de
-    /// Barcelona), OTP devuelve tripPatterns vacío porque no hay servicio
-    /// nocturno en la mayoría de líneas. Esto no es un error técnico, pero
-    /// el resultado parece un fallo desde el punto de vista del usuario.
-    ///
-    /// Solución: si estamos en franja nocturna (00:00–05:59 hora local),
-    /// avanzamos la hora de consulta al día siguiente a las 09:00, que
-    /// garantiza servicio completo de transporte público.
-    ///
-    /// El ID de zona horaria se intenta en el orden:
-    ///   1. "Europe/Madrid"       → Linux / macOS
-    ///   2. "Romance Standard Time" → Windows (alias de Europe/Madrid en CLDR)
-    ///   3. Offset fijo UTC+1     → fallback si ninguno de los anteriores existe
+    /// 
+    /// Si la consulta se realiza entre las 00:00 y las 05:59 en hora local
+    /// de Barcelona, se consulta el día siguiente a las 09:00 para evitar
+    /// respuestas vacías por falta de servicio nocturno.
     /// </summary>
     private static string GetQueryDateTime()
     {
@@ -392,41 +429,55 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         TimeZoneInfo zone = ResolveBarcelonaTimeZone();
         DateTime localNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, zone);
 
-        AppLogger.Debug("OTP", $"Hora local Barcelona para consulta: {localNow:HH:mm:ss}");
+        AppLogger.Debug(LogContext, $"Hora local Barcelona para consulta: {localNow:HH:mm:ss}");
 
         bool isNightHours = localNow.Hour < 6;
 
         DateTime queryLocal = isNightHours
-            ? localNow.Date.AddDays(1).AddHours(9)  // mañana a las 09:00
+            ? localNow.Date.AddDays(1).AddHours(9)
             : localNow;
 
         if (isNightHours)
         {
-            AppLogger.Info("OTP",
+            AppLogger.Info(
+                LogContext,
                 $"Franja nocturna detectada ({localNow:HH:mm}). " +
                 $"Consultando OTP con fecha futura: {queryLocal:yyyy-MM-dd HH:mm}");
         }
 
         DateTime queryUtc = TimeZoneInfo.ConvertTimeToUtc(queryLocal, zone);
+
         return queryUtc.ToString("yyyy-MM-ddTHH:mm:ssZ");
     }
 
     /// <summary>
-    /// Resuelve la zona horaria de Barcelona con fallback progresivo.
-    /// Necesario porque el ID varía entre Linux/macOS y Windows.
+    /// Resuelve la zona horaria de Barcelona con fallback compatible
+    /// entre Linux/macOS y Windows.
     /// </summary>
     private static TimeZoneInfo ResolveBarcelonaTimeZone()
     {
-        // Linux / macOS
-        try { return TimeZoneInfo.FindSystemTimeZoneById("Europe/Madrid"); }
-        catch { /* continúa */ }
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Madrid");
+        }
+        catch
+        {
+            // Continúa con fallback Windows.
+        }
 
-        // Windows
-        try { return TimeZoneInfo.FindSystemTimeZoneById("Romance Standard Time"); }
-        catch { /* continúa */ }
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Romance Standard Time");
+        }
+        catch
+        {
+            // Continúa con fallback fijo.
+        }
 
-        // Fallback: UTC+1 fijo (sin ajuste de verano, pero válido para desarrollo)
-        AppLogger.Warn("OTP", "No se pudo resolver la zona horaria de Barcelona. Usando UTC+1 fijo.");
+        AppLogger.Warn(
+            LogContext,
+            "No se pudo resolver la zona horaria de Barcelona. Usando UTC+1 fijo.");
+
         return TimeZoneInfo.CreateCustomTimeZone(
             "CET-Fallback",
             TimeSpan.FromHours(1),
