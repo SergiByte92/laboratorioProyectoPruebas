@@ -7,31 +7,56 @@ namespace Server.Application.Services;
 /// <summary>
 /// Factory para construir respuestas de resultado del punto de encuentro.
 ///
-/// Responsabilidad:
-/// - Crear modelos MeetingResultTransportModel consistentes.
-/// - Evitar duplicar payloads JSON dentro de LobbyHandler.
+/// Responsabilidades:
+/// - Crear modelos <see cref="MeetingResultTransportModel"/> consistentes.
+/// - Centralizar los estados especiales del resultado.
+/// - Evitar duplicar payloads JSON dentro de <c>LobbyHandler</c>.
 ///
-/// No serializa.
-/// No escribe en sockets.
-/// No consulta OTP.
-/// No contiene lógica de protocolo TCP.
+/// Esta clase no serializa.
+/// Esta clase no escribe en sockets.
+/// Esta clase no consulta OTP.
+/// Esta clase no contiene lógica de protocolo TCP.
 ///
-/// LobbyHandler decide CUÁNDO enviar una respuesta.
-/// MeetingResultFactory decide CÓMO construir esa respuesta.
+/// <c>LobbyHandler</c> decide cuándo enviar una respuesta.
+/// <c>MeetingResultFactory</c> decide cómo construir esa respuesta.
 /// </summary>
 public static class MeetingResultFactory
 {
+    #region Status codes
+
     /// <summary>
-    /// Resultado pendiente.
-    /// Se usa cuando todavía faltan ubicaciones de otros miembros.
+    /// Indica que el cálculo todavía está pendiente.
+    /// El cliente debe seguir haciendo polling.
+    /// </summary>
+    private const int PendingStatusCode = -1;
+
+    /// <summary>
+    /// Indica error técnico, error de validación o flujo inválido.
+    /// </summary>
+    private const int ErrorStatusCode = -2;
+
+    /// <summary>
+    /// Indica que el punto de encuentro existe, pero OTP no encontró ruta válida.
+    /// </summary>
+    private const int NoRouteStatusCode = -3;
+
+    #endregion
+
+    #region Public factory methods
+
+    /// <summary>
+    /// Construye un resultado pendiente.
     ///
-    /// DurationSeconds = -1 indica al cliente que debe seguir haciendo polling.
+    /// Se usa cuando el usuario ya ha enviado su ubicación, pero todavía faltan
+    /// ubicaciones de otros miembros del grupo.
+    ///
+    /// <c>DurationSeconds = -1</c> indica al cliente que debe seguir haciendo polling.
     /// </summary>
     public static MeetingResultTransportModel Pending()
     {
         return new MeetingResultTransportModel
         {
-            DurationSeconds = -1,
+            DurationSeconds = PendingStatusCode,
             HasValidRoute = false,
             MeetingPointName = "Pendiente",
             AddressText = "Esperando ubicaciones del resto del grupo",
@@ -42,12 +67,19 @@ public static class MeetingResultFactory
     }
 
     /// <summary>
-    /// Resultado de error técnico o de validación del flujo.
+    /// Construye un resultado de error técnico o de validación del flujo.
     ///
-    /// statusCode recomendado:
-    /// -2 = error técnico / flujo inválido
+    /// Se usa, por ejemplo, cuando:
+    /// - El grupo todavía no se ha iniciado.
+    /// - La ubicación recibida no es válida.
+    /// - OTP falla o tarda demasiado.
+    /// - Se produce un error inesperado en el servidor.
+    ///
+    /// Por defecto usa <c>DurationSeconds = -2</c>.
     /// </summary>
-    public static MeetingResultTransportModel Error(string message, int statusCode = -2)
+    public static MeetingResultTransportModel Error(
+        string message,
+        int statusCode = ErrorStatusCode)
     {
         return new MeetingResultTransportModel
         {
@@ -62,11 +94,14 @@ public static class MeetingResultFactory
     }
 
     /// <summary>
-    /// Resultado cuando el centroide se ha calculado correctamente,
-    /// pero OTP no ha devuelto una ruta válida.
+    /// Construye un resultado sin ruta válida.
     ///
-    /// DurationSeconds = -3 indica que existe punto de encuentro,
-    /// pero no existe itinerario disponible.
+    /// Se usa cuando el centroide se ha calculado correctamente, pero OTP no ha
+    /// devuelto ningún itinerario disponible entre el origen del usuario y el
+    /// punto de encuentro.
+    ///
+    /// <c>DurationSeconds = -3</c> indica al cliente que existe punto de encuentro,
+    /// pero no existe ruta disponible.
     /// </summary>
     public static MeetingResultTransportModel NoRoute(
         double meetingLatitude,
@@ -79,7 +114,7 @@ public static class MeetingResultFactory
             Longitude = meetingLongitude,
             OriginLatitude = origin.Latitude,
             OriginLongitude = origin.Longitude,
-            DurationSeconds = -3,
+            DurationSeconds = NoRouteStatusCode,
             HasValidRoute = false,
             MeetingPointName = "Punto de encuentro",
             AddressText = "No se encontró una ruta válida",
@@ -90,9 +125,17 @@ public static class MeetingResultFactory
     }
 
     /// <summary>
-    /// Resultado válido con ruta calculada correctamente.
-    /// Incluye punto de encuentro, origen del usuario, duración,
-    /// distancia, transbordos y tramos de ruta.
+    /// Construye un resultado válido con ruta calculada correctamente.
+    ///
+    /// Incluye:
+    /// - Coordenadas del punto de encuentro.
+    /// - Coordenadas de origen del usuario.
+    /// - Duración total.
+    /// - Distancia total.
+    /// - Número de transbordos.
+    /// - Tramos individuales de ruta.
+    ///
+    /// Este es el payload final que el cliente MAUI puede representar en el mapa.
     /// </summary>
     public static MeetingResultTransportModel Success(
         double meetingLatitude,
@@ -113,10 +156,24 @@ public static class MeetingResultFactory
             MeetingPointName = "Punto de encuentro",
             AddressText = "Ruta calculada correctamente",
             DistanceText = $"{route.DistanceMeters / 1000:0.0} km",
-            FairnessText = route.TransferCount == 0
-                ? "Ruta directa sin transbordos"
-                : $"Ruta con {route.TransferCount} transbordo{(route.TransferCount == 1 ? "" : "s")}",
+            FairnessText = BuildFairnessText(route.TransferCount),
             Legs = route.Legs
         };
     }
+
+    #endregion
+
+    #region Text builders
+
+    /// <summary>
+    /// Construye el texto descriptivo asociado al número de transbordos.
+    /// </summary>
+    private static string BuildFairnessText(int transferCount)
+    {
+        return transferCount == 0
+            ? "Ruta directa sin transbordos"
+            : $"Ruta con {transferCount} transbordo{(transferCount == 1 ? "" : "s")}";
+    }
+
+    #endregion
 }

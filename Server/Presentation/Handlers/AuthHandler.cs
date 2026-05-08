@@ -28,14 +28,25 @@ namespace Server.Presentation.Handlers;
 /// </summary>
 public sealed class AuthHandler
 {
+    #region Dependencies
+
     // Dependemos de la interfaz, no de la clase concreta.
-    // Esto es lo que permite el testing sin BBDD real.
+    // Esto permite testing sin BBDD real y mantiene el handler desacoplado
+    // de la implementación concreta de autenticación.
     private readonly IAuthService _authService;
+
+    #endregion
+
+    #region Constructor
 
     public AuthHandler(IAuthService authService)
     {
         _authService = authService;
     }
+
+    #endregion
+
+    #region Authentication Protocol
 
     /// <summary>
     /// Protocolo de login:
@@ -44,20 +55,20 @@ public sealed class AuthHandler
     /// → [bool]   success
     ///
     /// Devuelve el User si el login fue correcto, null en caso contrario.
-    /// El caller (Program.cs) decide qué hacer según el resultado.
+    /// El caller, normalmente Program.cs, decide qué hacer según el resultado.
     /// </summary>
     public User? HandleLogin(System.Net.Sockets.Socket socket)
     {
-        // Leer del socket — responsabilidad de esta capa
+        // Leer del socket — responsabilidad de esta capa.
         string email = SocketTools.receiveString(socket);
         string password = SocketTools.receiveString(socket);
 
         AppLogger.Info("AuthHandler", $"Procesando login para: {email}");
 
-        // Delegar la lógica de negocio al servicio
+        // Delegar la lógica de negocio al servicio.
         User? user = _authService.Login(email, password);
 
-        // Escribir en el socket — responsabilidad de esta capa
+        // Escribir en el socket — responsabilidad de esta capa.
         SocketTools.sendBool(socket, user is not null);
 
         return user;
@@ -73,7 +84,7 @@ public sealed class AuthHandler
     /// </summary>
     public void HandleRegister(System.Net.Sockets.Socket socket)
     {
-        // Leer todos los datos antes de intentar el registro
+        // Leer todos los datos antes de intentar el registro.
         string username = SocketTools.receiveString(socket);
         string email = SocketTools.receiveString(socket);
         string password = SocketTools.receiveString(socket);
@@ -95,6 +106,10 @@ public sealed class AuthHandler
         }
     }
 
+    #endregion
+
+    #region User Data Protocol
+
     /// <summary>
     /// Protocolo GetHomeData:
     /// → [string] username
@@ -102,6 +117,7 @@ public sealed class AuthHandler
     public void HandleGetHomeData(System.Net.Sockets.Socket socket, User user)
     {
         AppLogger.Debug("AuthHandler", $"[User:{user.username}] GetHomeData.");
+
         SocketTools.sendString(user.username, socket);
     }
 
@@ -114,9 +130,13 @@ public sealed class AuthHandler
     public void HandleGetProfileData(System.Net.Sockets.Socket socket, User user)
     {
         AppLogger.Info("AuthHandler", $"[User:{user.username}] GetProfileData.");
+
         SocketTools.sendString(user.username, socket);
         SocketTools.sendString(user.email, socket);
         SocketTools.sendString(user.birth_date.ToString("dd/MM/yyyy"), socket);
+
         AppLogger.Debug("AuthHandler", $"[User:{user.username}] Datos de perfil enviados.");
     }
+
+    #endregion
 }
