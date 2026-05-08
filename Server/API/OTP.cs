@@ -6,45 +6,20 @@ namespace Server.API;
 
 /// <summary>
 /// Cliente de integración con OpenTripPlanner (OTP).
-///
-/// Esta clase encapsula toda la comunicación HTTP/GraphQL contra OTP y evita
-/// que el resto del servidor tenga que conocer la estructura interna de la
-/// respuesta GraphQL.
-///
-/// Responsabilidades principales:
-/// - Construir la query GraphQL de planificación de viaje.
-/// - Enviar la petición HTTP al endpoint de OTP.
-/// - Validar errores HTTP y errores GraphQL.
-/// - Parsear la respuesta cruda de OTP.
-/// - Transformar el primer itinerario válido en modelos internos del servidor.
-///
-/// No calcula el punto de encuentro.
-/// No gestiona grupos ni sesiones.
-/// No envía datos directamente al cliente MAUI.
+/// 
+/// Responsabilidades:
+/// - Construir y enviar la consulta GraphQL.
+/// - Validar errores HTTP y GraphQL.
+/// - Parsear la respuesta de OTP a modelos internos de ruta.
 /// </summary>
 public sealed class OTP
 {
+    #region Constants
+
     private const string LogContext = nameof(OTP);
 
-    /// <summary>
-    /// Endpoint GraphQL expuesto por OpenTripPlanner.
-    ///
-    /// En el entorno actual se espera que OTP esté ejecutándose localmente,
-    /// normalmente dentro de Docker, exponiendo el puerto 8080.
-    /// </summary>
     private const string OtpGraphQlUrl = "http://localhost:8080/otp/transmodel/v3";
 
-    /// <summary>
-    /// Query GraphQL usada para solicitar rutas entre dos coordenadas.
-    ///
-    /// Se solicitan:
-    /// - Patrones de viaje disponibles.
-    /// - Duración y distancia total.
-    /// - Tramos individuales del itinerario.
-    /// - Información de línea, modo de transporte, dirección y geometría.
-    ///
-    /// El resultado se parsea posteriormente a MeetingRouteResult y RouteLegDto.
-    /// </summary>
     private const string TripQuery = @"
 query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
   trip(dateTime: $dateTime, from: $from, to: $to) {
@@ -113,24 +88,27 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
   }
 }";
 
+    #endregion
+
+    #region Dependencies
+
     private readonly HttpClient _httpClient;
 
-    /// <summary>
-    /// Recibe HttpClient por inyección de dependencias.
-    ///
-    /// Esto evita crear instancias manuales de HttpClient dentro de la clase
-    /// y permite configurar timeouts, handlers o políticas externas.
-    /// </summary>
+    #endregion
+
+    #region Constructor
+
     public OTP(HttpClient httpClient)
     {
         _httpClient = httpClient;
     }
 
+    #endregion
+
+    #region Models
+
     /// <summary>
     /// Coordenada geográfica simple usada como origen o destino de una ruta.
-    ///
-    /// Origen: ubicación real del usuario.
-    /// Destino: punto de encuentro calculado por el servidor.
     /// </summary>
     public sealed class Coordenada
     {
@@ -144,26 +122,18 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         }
     }
 
+    #endregion
+
+    #region Public API
+
     /// <summary>
-    /// Consulta OpenTripPlanner y devuelve la respuesta JSON cruda.
-    ///
-    /// Este método solo se encarga de la comunicación con OTP:
-    /// - Prepara variables de la query.
-    /// - Envía la petición HTTP.
-    /// - Valida la respuesta.
-    /// - Devuelve el JSON sin transformarlo.
-    ///
-    /// La transformación del JSON a modelos internos se hace en
-    /// ExtraerResultadoRuta.
+    /// Consulta OTP y devuelve el JSON crudo.
+    /// 
+    /// Usa una fecha de consulta controlada para evitar respuestas vacías
+    /// durante franjas sin servicio de transporte.
     /// </summary>
     public async Task<string> ConsultarAsync(Coordenada origen, Coordenada destino)
     {
-        /*
-         * OTP puede devolver tripPatterns vacío si se consulta en franjas
-         * con poco o ningún servicio de transporte.
-         *
-         * Por eso se calcula una fecha controlada con GetQueryDateTime().
-         */
         string queryDateTime = GetQueryDateTime();
 
         AppLogger.Info(
@@ -192,12 +162,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
 
         AppLogger.Info(LogContext, $"HTTP Status={(int)response.StatusCode} {response.StatusCode}");
 
-        /*
-         * GraphQL puede devolver HTTP 200 aunque exista un error lógico
-         * dentro del campo "errors". Por eso se validan ambos niveles:
-         * - Estado HTTP.
-         * - Errores GraphQL dentro del JSON.
-         */
         ValidateHttpResponse(response, jsonResponse);
         ValidateGraphQlResponse(jsonResponse);
 
@@ -207,11 +171,7 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
     }
 
     /// <summary>
-    /// Método de compatibilidad para obtener únicamente la duración.
-    ///
-    /// Se conserva para llamadas antiguas o casos donde solo interesa saber
-    /// el tiempo total, pero el flujo principal debería usar
-    /// ExtraerResultadoRuta para obtener duración, distancia, transbordos y legs.
+    /// Método de compatibilidad para obtener únicamente la duración de la ruta.
     /// </summary>
     public int? ExtraerDuracion(string jsonResponse)
     {
@@ -220,12 +180,9 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
     }
 
     /// <summary>
-    /// Extrae el primer itinerario válido devuelto por OTP y lo transforma
-    /// en un MeetingRouteResult.
-    ///
-    /// Devuelve null cuando OTP responde correctamente pero no encuentra
-    /// ninguna ruta válida. Esto no se considera error técnico, sino ausencia
-    /// funcional de itinerario.
+    /// Extrae el primer itinerario válido de OTP y lo convierte a MeetingRouteResult.
+    /// 
+    /// Devuelve null cuando OTP responde correctamente pero no encuentra ruta.
     /// </summary>
     public MeetingRouteResult? ExtraerResultadoRuta(string jsonResponse)
     {
@@ -252,15 +209,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             return null;
         }
 
-        /*
-         * OTP puede devolver varios itinerarios.
-         * Actualmente se toma el primero, que suele ser el recomendado
-         * por el motor de planificación.
-         *
-         * Mejora futura:
-         * seleccionar por menor duración, menor número de transbordos
-         * o generalizedCost.
-         */
         JsonElement firstPattern = patterns[0];
 
         int duration = ReadInt(firstPattern, "duration");
@@ -283,10 +231,10 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         };
     }
 
-    /// <summary>
-    /// Adapta una coordenada interna al formato esperado por la variable
-    /// Location de la query GraphQL de OTP.
-    /// </summary>
+    #endregion
+
+    #region GraphQL Request Builders
+
     private static object CreateLocation(Coordenada coordenada)
     {
         return new
@@ -299,15 +247,10 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         };
     }
 
-    /// <summary>
-    /// Valida el estado HTTP de la respuesta.
-    ///
-    /// Detecta errores de infraestructura o endpoint:
-    /// - OTP no disponible.
-    /// - Endpoint incorrecto.
-    /// - Error interno de OTP.
-    /// - Request mal formada.
-    /// </summary>
+    #endregion
+
+    #region Response Validation
+
     private static void ValidateHttpResponse(HttpResponseMessage response, string jsonResponse)
     {
         if (response.IsSuccessStatusCode)
@@ -320,21 +263,12 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         throw new Exception($"[OTP] Error HTTP {(int)response.StatusCode}: {jsonResponse}");
     }
 
-    /// <summary>
-    /// Valida si la respuesta GraphQL contiene errores lógicos en el campo "errors".
-    ///
-    /// En GraphQL puede existir HTTP 200 con errores dentro del body.
-    /// </summary>
     private static void ValidateGraphQlResponse(string jsonResponse)
     {
         using JsonDocument doc = JsonDocument.Parse(jsonResponse);
         ValidateGraphQlDocument(doc);
     }
 
-    /// <summary>
-    /// Revisa el documento JSON ya parseado y lanza excepción si GraphQL
-    /// devolvió errores.
-    /// </summary>
     private static void ValidateGraphQlDocument(JsonDocument doc)
     {
         if (doc.RootElement.TryGetProperty("errors", out JsonElement errors) &&
@@ -346,12 +280,10 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         }
     }
 
-    /// <summary>
-    /// Obtiene el nodo data.trip de la respuesta GraphQL.
-    ///
-    /// Si la estructura no coincide con lo esperado, se considera error
-    /// de contrato con OTP.
-    /// </summary>
+    #endregion
+
+    #region GraphQL Document Navigation
+
     private static JsonElement GetTripElement(JsonDocument doc)
     {
         if (!doc.RootElement.TryGetProperty("data", out JsonElement data))
@@ -367,11 +299,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         return trip;
     }
 
-    /// <summary>
-    /// Obtiene el array tripPatterns desde data.trip.
-    ///
-    /// tripPatterns contiene los itinerarios candidatos devueltos por OTP.
-    /// </summary>
     private static JsonElement GetTripPatterns(JsonElement trip)
     {
         if (!trip.TryGetProperty("tripPatterns", out JsonElement patterns) ||
@@ -383,12 +310,10 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         return patterns;
     }
 
-    /// <summary>
-    /// Extrae todos los tramos del itinerario seleccionado.
-    ///
-    /// Cada leg representa una fase del trayecto:
-    /// caminar, metro, bus, tren, transbordo, etc.
-    /// </summary>
+    #endregion
+
+    #region Route Parsing
+
     private static List<RouteLegDto> ParseLegs(JsonElement pattern)
     {
         List<RouteLegDto> legs = new();
@@ -407,12 +332,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         return legs;
     }
 
-    /// <summary>
-    /// Convierte un leg de OTP en RouteLegDto.
-    ///
-    /// Se extraen datos comunes como modo, duración, distancia, origen/destino,
-    /// línea de transporte, dirección y geometría codificada.
-    /// </summary>
     private static RouteLegDto ParseLeg(JsonElement leg)
     {
         string mode = ReadString(leg, "mode");
@@ -440,13 +359,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         };
     }
 
-    /// <summary>
-    /// Calcula el número aproximado de transbordos.
-    ///
-    /// Se cuentan únicamente los tramos de transporte público, ignorando WALK.
-    /// Si hay una sola línea de transporte, hay 0 transbordos.
-    /// Si hay dos líneas de transporte, hay 1 transbordo, etc.
-    /// </summary>
     private static int CalculateTransferCount(List<RouteLegDto> legs)
     {
         int transitLegs = legs.Count(leg =>
@@ -455,11 +367,10 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         return Math.Max(0, transitLegs - 1);
     }
 
-    /// <summary>
-    /// Lee una propiedad dentro del nodo line de un leg.
-    ///
-    /// En tramos WALK normalmente no existe line, por lo que se devuelve null.
-    /// </summary>
+    #endregion
+
+    #region Leg Field Readers
+
     private static string? ReadLineProperty(JsonElement leg, string propertyName)
     {
         if (!leg.TryGetProperty("line", out JsonElement line) ||
@@ -471,13 +382,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         return ReadNullableString(line, propertyName);
     }
 
-    /// <summary>
-    /// Lee la dirección o cabecera de la línea desde fromEstimatedCall.
-    ///
-    /// Ejemplo conceptual:
-    /// - "Zona Universitària"
-    /// - "Badalona Pompeu Fabra"
-    /// </summary>
     private static string? ReadHeadsign(JsonElement leg)
     {
         if (!leg.TryGetProperty("fromEstimatedCall", out JsonElement call) ||
@@ -495,12 +399,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         return ReadNullableString(display, "frontText");
     }
 
-    /// <summary>
-    /// Lee la geometría codificada del tramo.
-    ///
-    /// OTP devuelve puntos de ruta como polyline codificada. El cliente puede
-    /// usarla para dibujar el trazado real del tramo en el mapa.
-    /// </summary>
     private static string? ReadEncodedPolyline(JsonElement leg)
     {
         if (!leg.TryGetProperty("pointsOnLink", out JsonElement pointsOnLink) ||
@@ -512,11 +410,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         return ReadNullableString(pointsOnLink, "points");
     }
 
-    /// <summary>
-    /// Lee el nombre de un lugar dentro del leg:
-    /// - fromPlace.name
-    /// - toPlace.name
-    /// </summary>
     private static string ReadPlaceName(JsonElement leg, string placeProperty)
     {
         if (!leg.TryGetProperty(placeProperty, out JsonElement place) ||
@@ -528,12 +421,10 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         return ReadString(place, "name");
     }
 
-    /// <summary>
-    /// Lee un string obligatorio de forma defensiva.
-    ///
-    /// Si la propiedad no existe o es null, devuelve string.Empty para evitar
-    /// excepciones durante el parseo de campos no críticos.
-    /// </summary>
+    #endregion
+
+    #region Json Primitive Readers
+
     private static string ReadString(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out JsonElement value) &&
@@ -542,11 +433,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : string.Empty;
     }
 
-    /// <summary>
-    /// Lee un string opcional.
-    ///
-    /// Devuelve null cuando la propiedad no existe o es null.
-    /// </summary>
     private static string? ReadNullableString(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out JsonElement value) &&
@@ -555,11 +441,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : null;
     }
 
-    /// <summary>
-    /// Lee un entero de forma defensiva.
-    ///
-    /// Devuelve 0 si la propiedad no existe o no es numérica.
-    /// </summary>
     private static int ReadInt(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out JsonElement value) &&
@@ -568,11 +449,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : 0;
     }
 
-    /// <summary>
-    /// Lee un double de forma defensiva.
-    ///
-    /// Devuelve 0 si la propiedad no existe o no es numérica.
-    /// </summary>
     private static double ReadDouble(JsonElement element, string propertyName)
     {
         return element.TryGetProperty(propertyName, out JsonElement value) &&
@@ -581,15 +457,16 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             : 0;
     }
 
+    #endregion
+
+    #region Query Date Handling
+
     /// <summary>
     /// Calcula la fecha y hora que se enviará a OTP.
-    ///
+    /// 
     /// Si la consulta se realiza entre las 00:00 y las 05:59 en hora local
     /// de Barcelona, se consulta el día siguiente a las 09:00 para evitar
     /// respuestas vacías por falta de servicio nocturno.
-    ///
-    /// El valor final se devuelve en UTC con formato ISO-8601:
-    /// yyyy-MM-ddTHH:mm:ssZ
     /// </summary>
     private static string GetQueryDateTime()
     {
@@ -620,12 +497,8 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
     }
 
     /// <summary>
-    /// Resuelve la zona horaria de Barcelona con compatibilidad entre sistemas.
-    ///
-    /// Linux/macOS suelen usar identificadores IANA como Europe/Madrid.
-    /// Windows usa identificadores propios como Romance Standard Time.
-    ///
-    /// Si ninguno está disponible, se usa un fallback UTC+1.
+    /// Resuelve la zona horaria de Barcelona con fallback compatible
+    /// entre Linux/macOS y Windows.
     /// </summary>
     private static TimeZoneInfo ResolveBarcelonaTimeZone()
     {
@@ -635,7 +508,7 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         }
         catch
         {
-            // Fallback para Windows.
+            // Continúa con fallback Windows.
         }
 
         try
@@ -644,7 +517,7 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
         }
         catch
         {
-            // Fallback final si el entorno no reconoce ninguna zona.
+            // Continúa con fallback fijo.
         }
 
         AppLogger.Warn(
@@ -657,4 +530,6 @@ query trip($dateTime: DateTime, $from: Location!, $to: Location!) {
             "CET Fallback",
             "CET Fallback");
     }
+
+    #endregion
 }
